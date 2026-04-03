@@ -1,24 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
 import SelectInput from 'ink-select-input';
+import { commandList } from '../commands';
 
 interface CommandInputProps {
     onSubmit: (text: string) => void;
 }
-
-// 模拟可用的命令列表
-const commands = [
-    { label: '查看状态 (status)', value: 'status' },
-    { label: '清空屏幕 (clear)', value: 'clear' },
-    { label: '退出系统 (exit)', value: 'exit' },
-];
 
 export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
     const [query, setQuery] = useState('');
 
     // 只要输入以 / 开头，就进入命令选择模式
     const isCommandMode = query.startsWith('/');
+
+    const availableCommands = useMemo(() => {
+        return commandList
+            .filter(cmd => !cmd.isHidden)
+            .map(cmd => ({
+                label: `${cmd.description} (${cmd.name})`,
+                value: cmd.name
+            }));
+    }, []);
 
     const handleSubmit = (value: string) => {
         if (!value.trim()) return;
@@ -58,7 +61,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
                             按上下键选择命令，回车执行：
                         </Text>
                     </Box>
-                    <SelectInput items={commands} onSelect={handleCommandSelect} />
+                    <SelectInput items={availableCommands} onSelect={handleCommandSelect} />
                 </Box>
             )}
         </Box>

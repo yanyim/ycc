@@ -5,6 +5,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { Welcome } from './components/Welcome';
 import { ChatArea } from './components/ChatArea';
 import { CommandInput } from './components/CommandInput';
+import { commandRegistry } from './commands';
 import type { Message } from './types';
 
 const customModel = createOpenAI({
@@ -21,21 +22,29 @@ export const App: React.FC = () => {
     const handleInputSubmit = async (text: string) => {
         if (isGenerating) return;
 
-        if (text === '/exit') process.exit(0);
-        if (text === '/clear') {
-            console.clear();
-            setHistory([]);
-            return;
-        }
-
         const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text };
 
         if (text.startsWith('/')) {
-            setHistory((prev) => [
-                ...prev,
-                userMsg,
-                { id: crypto.randomUUID(), role: 'system', content: `执行了内部命令: ${text}` }
-            ]);
+            const [cmdNameWithSlash, ...args] = text.trim().split(' ');
+            const cmdName = (cmdNameWithSlash || '').slice(1);
+            const command = commandRegistry.get(cmdName);
+
+            if (command) {
+                try {
+                    await command.execute({ args, options: {}, history, setHistory });
+                } catch (error: any) {
+                    setHistory((prev) => [
+                        ...prev,
+                        { id: crypto.randomUUID(), role: 'system', content: `[命令执行失败]: ${error.message}` }
+                    ]);
+                }
+            } else {
+                setHistory((prev) => [
+                    ...prev,
+                    userMsg,
+                    { id: crypto.randomUUID(), role: 'system', content: `未知命令: ${cmdName}` }
+                ]);
+            }
             return;
         }
 
