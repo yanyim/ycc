@@ -9,11 +9,11 @@ interface ChatAreaProps {
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ history, currentStream }) => {
     return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" minHeight={10}>
             {/* 1. 已完成的对话：作为静态日志永久打印到终端上方的屏幕 */}
             <Static items={history}>
                 {(msg) => (
-                    <Box key={msg.id} marginBottom={1} flexDirection="row">
+                    <Box key={msg.id} marginBottom={0} flexDirection="row">
                         <Text bold color={msg.role === 'ai' ? 'blue' : msg.role === 'user' ? 'green' : 'yellow'}>
                             {msg.role === 'ai' ? 'AI:   ' : msg.role === 'system' ? 'SYS:  ' : 'USER: '}
                         </Text>
@@ -24,7 +24,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ history, currentStream }) =>
 
             {/* 2. 正在生成的对话：位于终端底部，随流式数据动态更新 */}
             {currentStream && (
-                <Box marginBottom={1} flexDirection="row">
+                <Box marginBottom={0} flexDirection="row">
                     <Text bold color="blue">AI:   </Text>
                     <Text>{currentStream}</Text>
                 </Box>

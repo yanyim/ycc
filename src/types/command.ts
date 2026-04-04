@@ -1,11 +1,15 @@
 import type { Message } from '../types';
-import type React from 'react';
 
 export interface CommandContext {
     args: string[];
     options: Record<string, any>;
-    history: Message[];
-    setHistory: React.Dispatch<React.SetStateAction<Message[]>>;
+
+    // 注入必要的上下文状态
+    messages: Message[];
+
+    // 注入状态修改方法
+    addMessage: (message: Message) => Promise<void>;
+    clearMessages: () => Promise<void>;
 }
 
 export interface Command {

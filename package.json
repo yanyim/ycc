@@ -25,6 +25,7 @@
     "ink": "^6.8.0",
     "ink-select-input": "^6.2.0",
     "ink-text-input": "^6.0.0",
-    "react": "^19.2.4"
+    "react": "^19.2.4",
+    "zustand": "^5.0.12"
   }
 }

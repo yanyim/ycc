@@ -2,5 +2,10 @@
 import React from 'react';
 import { render } from 'ink';
 import { App } from './App';
+import { StoreProvider } from './storage'; // 🌟 引入 Provider
 
-render(<App />);
+render(
+    <StoreProvider>
+        <App />
+    </StoreProvider>
+);
