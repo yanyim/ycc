@@ -18,7 +18,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
         return commandList
             .filter(cmd => !cmd.isHidden)
             .map(cmd => ({
-                label: `${cmd.description} (${cmd.name})`,
+                label: `/${cmd.name} (${cmd.description}) `,
                 value: cmd.name
             }));
     }, []);
