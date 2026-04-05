@@ -1,10 +1,14 @@
-import { StructuredTool, DynamicStructuredTool } from "@langchain/core/tools";
-// 注意：不同版本的 langchain 导出路径可能略有不同，请根据你的 @langchain/community 实际路径调整
-import { ReadFileTool, WriteFileTool } from "@langchain/community/tools";
-import { z } from "zod";
-import * as path from "path";
-import * as os from "os";
-import { AgentDefinition } from "../config/agents";
+import {DynamicStructuredTool, StructuredTool} from "@langchain/core/tools";
+import {z} from "zod";
+import type {AgentDefinition} from "../config/agents";
+
+// 导入自定义实现的文件系统工具工厂
+import {
+    createAnalyzeFileTool,
+    createGrepSearchTool,
+    createListFilesTool,
+    createReadFileTool
+} from "../../tools/file-system";
 
 /**
  * 工具注册与分发中心
@@ -21,19 +25,19 @@ export class CodeToolRegistry {
      * 核心漏斗：为特定的 Agent 解析并生成专属工具集
      */
     public resolveToolsForAgent(agentDef: AgentDefinition): StructuredTool[] {
-        // 1. 初始化全量底层工具库
         let tools = this.initializeAllTools();
 
-        // 2. 第一层漏斗：沙箱隔离拦截 (Isolation Interceptor)
+        // 1. 第一层漏斗：沙箱隔离拦截
         tools = this.applyIsolationPolicy(tools, agentDef.isolation);
 
-        // 3. 第二层漏斗：角色白名单拦截 (Allowed Tools)
+        // 2. 第二层漏斗：角色白名单拦截
         if (agentDef.allowedTools !== '*') {
             const allowedSet = new Set(agentDef.allowedTools);
+            // 注意：这里需要匹配自定义工具定义的 name
             tools = tools.filter(tool => allowedSet.has(tool.name));
         }
 
-        // 4. 第三层漏斗：黑名单拦截 (Disallowed Tools)
+        // 3. 第三层漏斗：黑名单拦截
         if (agentDef.disallowedTools && agentDef.disallowedTools.length > 0) {
             const disallowedSet = new Set(agentDef.disallowedTools);
             tools = tools.filter(tool => !disallowedSet.has(tool.name));
@@ -48,10 +52,12 @@ export class CodeToolRegistry {
     private initializeAllTools(): StructuredTool[] {
         const tools: StructuredTool[] = [];
 
-        // --- 引入官方 File System 工具 ---
-        // 默认将其读写范围限制在当前工作区，防止跨目录越权读取 (如 /etc/shadow)
-        tools.push(new ReadFileTool({ rootDirectory: this.workspacePath }));
-        tools.push(new WriteFileTool({ rootDirectory: this.workspacePath }));
+        // --- 接入自定义核心文件系统工具 (替代 @langchain/community) ---
+        // 这些工具已经通过闭包绑定了 this.workspacePath
+        tools.push(createListFilesTool(this.workspacePath));   // 工具名: list_files
+        tools.push(createReadFileTool(this.workspacePath));    // 工具名: read_file
+        tools.push(createGrepSearchTool(this.workspacePath));  // 工具名: grep_search
+        tools.push(createAnalyzeFileTool(this.workspacePath)); // 工具名: analyze_file
 
         // --- 补充自定义工具：命令行执行 ---
         tools.push(
@@ -61,29 +67,15 @@ export class CodeToolRegistry {
                 schema: z.object({
                     command: z.string().describe("要执行的 shell 命令"),
                 }),
-                func: async ({ command }) => {
-                    // TODO: 实际的 exec 或 spawn 逻辑实现
-                    // 在 CLI 中，这里后续会结合 React Ink 抛出事件
+                func: async ({command}) => {
+                    // TODO: 结合 Bun.spawn 实现真实的执行逻辑
                     return `[Mock Executing]: ${command}\nOutput: success`;
                 },
             })
         );
 
-        // --- 补充自定义工具：代码库全局检索 ---
-        tools.push(
-            new DynamicStructuredTool({
-                name: "grep",
-                description: "在代码库中基于正则表达式搜索字符串",
-                schema: z.object({
-                    pattern: z.string().describe("搜索的正则表达式"),
-                    dir: z.string().optional().describe("指定搜索子目录，默认为当前目录"),
-                }),
-                func: async ({ pattern, dir }) => {
-                    // TODO: 实际的 ripgrep 或 node 遍历搜索逻辑
-                    return `[Mock Grep]: 找到了关于 ${pattern} 的 3 处引用...`;
-                },
-            })
-        );
+        // 注意：原代码中的 ReadFileTool 和 WriteFileTool (官方) 已移除
+        // 原代码中的 mock grep 已经被真正的 createGrepSearchTool 替代
 
         return tools;
     }
@@ -94,33 +86,23 @@ export class CodeToolRegistry {
     private applyIsolationPolicy(tools: StructuredTool[], isolation: AgentDefinition['isolation']): StructuredTool[] {
         switch (isolation) {
             case 'read-only':
-                // 只读模式：直接在数组中剔除所有带有破坏性的工具
+                // 只读模式：移除带有写操作或执行操作的工具
                 return tools.filter(t =>
-                    t.name !== 'write_file' &&
+                    t.name !== 'write_file' && // 预留
                     t.name !== 'bash_execute'
                 );
 
             case 'tmp-only':
-                // tmp-only 模式 (主要供 Verifier 使用)：
-                // 允许写文件，但必须强制修改其底层配置，将其 Root Dir 指向操作系统的 /tmp 目录
+                // tmp-only 模式：目前主要拦截 bash_execute，或在未来将写操作重定向至临时目录
                 return tools.map(t => {
-                    if (t.name === 'write_file') {
-                        // 返回一个指向 /tmp 的新 WriteFileTool 实例，覆盖原有的 workspace 配置
-                        return new WriteFileTool({ rootDirectory: os.tmpdir() });
-                    }
-                    if (t.name === 'bash_execute') {
-                        // 这里的拦截逻辑可以更细致，比如限制 Bash 只能运行带 `test` 的命令
-                        return t;
-                    }
+                    // 如果未来实现了自定义 write_file，可在此重定向路径至 os.tmpdir()
                     return t;
                 });
 
             case 'workspace-rw':
-                // 拥有完整权限，不做任何拦截
                 return tools;
 
             default:
-                // 默认 fallback 为最安全的只读模式
                 return tools.filter(t => t.name !== 'write_file' && t.name !== 'bash_execute');
         }
     }
