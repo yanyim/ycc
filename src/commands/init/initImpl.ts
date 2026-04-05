@@ -15,6 +15,7 @@ export async function coreInitLogic() {
             provider: m.provider,
             model: m.name
         })),
+        delay: 0,
         currentModel: defaultModels[0]?.name || ''
     };
 

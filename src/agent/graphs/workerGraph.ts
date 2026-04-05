@@ -19,7 +19,8 @@ import type {StructuredTool} from "@langchain/core/tools";
 export function createWorkerGraph(
     agentDef: AgentDefinition,
     tools: StructuredTool[],
-    llmModel: any // 你的统一模型实例 (如 ChatOpenAI 或统一的 createModel 产物)
+    llmModel: any, // 你的统一模型实例 (如 ChatOpenAI 或统一的 createModel 产物)
+    delayMs: number = 0
 ) {
     // 1. 绑定当前 Agent 专属的隔离工具包
     const modelWithTools = tools.length > 0 ? llmModel.bindTools(tools) : llmModel;
@@ -41,6 +42,10 @@ export function createWorkerGraph(
 
         // --- 加入历史对话 ---
         messages.push(...state.messages);
+
+        if (delayMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
 
         // --- 调用大模型 ---
         const response = await modelWithTools.invoke(messages, config);

@@ -11,10 +11,12 @@ export class CodeAgentOrchestrator {
     private graph: any; // 编译后的主图
     private llmModel: any;
     private toolRegistry: CodeToolRegistry;
+    private delayMs: number;
 
-    constructor(llmModel: any, workspacePath: string = process.cwd()) {
+    constructor(llmModel: any, workspacePath: string = process.cwd(), delayMs: number = 0) {
         this.llmModel = llmModel;
         this.toolRegistry = new CodeToolRegistry(workspacePath);
+        this.delayMs = delayMs;
         this.buildGlobalGraph();
     }
 
@@ -62,6 +64,10 @@ export class CodeAgentOrchestrator {
 3. 任务完成验收：如果代码已经修改并被 verifier 验证通过，将 nextWorker 设为 "FINISH"，在 message 中向用户总结成果。
 
 【严重警告】：你必须严格输出匹配 Schema 的 JSON 对象！绝对禁止输出 JSON 数组 (Array) 或纯文本！`;
+
+            if (this.delayMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, this.delayMs));
+            }
 
             const response = await supervisorModel.invoke([
                 new SystemMessage(systemPrompt),

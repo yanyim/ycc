@@ -7,4 +7,8 @@ export const models = [
         name: 'minimax/minimax-m2.5:free',
         provider: 'openrouter',
     },
+    {
+        name: 'minimax/minimax-m2.7',
+        provider: 'openrouter',
+    },
 ]

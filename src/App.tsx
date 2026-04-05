@@ -36,6 +36,7 @@ export const App: React.FC = () => {
     const currentModelName = useConfigStore(state => state.currentModel);
     const setCurrentModel = useConfigStore(state => state.setCurrentModel);
     const setModels = useConfigStore(state => state.setModels);
+    const delay = useConfigStore(state => state.delay);
 
     // 🌟 动态生成 LangChain 模型实例
     const activeModel = useMemo(() => {
@@ -47,8 +48,8 @@ export const App: React.FC = () => {
 
     // 🌟 实例化智能体编排器 (当模型变化时重建)
     const orchestrator = useMemo(() => {
-        return new CodeAgentOrchestrator(activeModel, process.cwd());
-    }, [activeModel]);
+        return new CodeAgentOrchestrator(activeModel, process.cwd(), delay);
+    }, [activeModel, delay]);
 
     useEffect(() => {
         // 只有在普通模式下，才加载默认的系统命令
