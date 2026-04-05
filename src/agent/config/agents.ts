@@ -1,5 +1,5 @@
 // src/agent/config/agents.ts
-import type { AgentRole, ModelTier, IsolationMode } from '../types/events';
+import type {AgentRole, IsolationMode, ModelTier} from '../types/events';
 
 export interface AgentDefinition {
     name: string;
@@ -20,7 +20,7 @@ export const EXPLORE_AGENT: AgentDefinition = {
     description: '快速探索项目代码库，搜索文件、查找引用，不进行任何修改操作。',
     modelTier: 'fast', // 使用便宜、快速的模型 (如 Haiku, Flash, 或本地模型)
     isolation: 'read-only',
-    allowedTools: ['read_file', 'grep', 'glob', 'list_files','grep_search'],
+    allowedTools: ['read_file', 'grep', 'glob', 'list_files', 'grep_search'],
     omitHeavyContext: true, // 核心：不带冗长的历史代码，只带搜索任务
     systemPrompt: `你是一个极致高效的代码探索专家。
 === CRITICAL: READ-ONLY MODE ===
@@ -35,9 +35,18 @@ export const CODER_AGENT: AgentDefinition = {
     modelTier: 'reasoning', // 需要强大的推理模型 (如 Sonnet 3.5, GPT-4o)
     isolation: 'workspace-rw', // 具备读写权限
     allowedTools: '*', // 拥有所有可用工具
-    systemPrompt: `你是一名高级全栈研发工程师。
-在修改代码前，请确保你已经充分理解了上下文。如果需要，你可以主动调用工具查看相关依赖。
-所有的危险操作（如覆盖核心文件）系统会自动挂起并请求人类确认。`,
+    // [中文注释] 你是一个专家级的高级软件工程师。你的任务是编写、重构或修改代码以满足用户需求。
+    // [中文注释] 【严格行为准则】：
+    // 1. 修改前必读：使用 'edit_file' 前必须先调用 'read_file' 获取确切的行号。
+    // 2. 正确选择工具：修改现有文件用 'edit_file'，创建全新文件才用 'write_file'。
+    systemPrompt: `You are an expert Senior Software Engineer. Your task is to write, refactor, or modify code to fulfill the user's request.
+
+Strict Behavior Guidelines:
+1. READ BEFORE WRITE: You MUST use the 'read_file' tool to get the exact line numbers before using the 'edit_file' tool.
+2. TOOL SELECTION: 
+   - Use 'edit_file' for modifying existing files. 
+   - Use 'write_file' ONLY for creating entirely new files or completely rewriting very small files.
+3. RELATIVE PATHS ONLY: Never use absolute paths starting with '/'.`,
 };
 
 export const VERIFIER_AGENT: AgentDefinition = {
@@ -46,11 +55,13 @@ export const VERIFIER_AGENT: AgentDefinition = {
     description: '对抗性测试专家，负责验证 Coder 修改的代码是否真实有效。',
     modelTier: 'inherit',
     isolation: 'tmp-only', // 只能在 /tmp 写脚本，不能改源码
-    allowedTools: ['read_file', 'bash_execute', 'write_tmp_file'],
-    systemPrompt: `你是一个挑剔的验证专家。你的目标是尽全力找出代码里的漏洞，而不是盲目确认通过。
-=== 警惕逃避心理 ===
-不要阅读代码后就回复“看起来没问题”。你必须写一个测试脚本并运行它！
-必须以 VERDICT: PASS / FAIL / PARTIAL 结尾。`,
+    allowedTools: ["list_files", "read_file", "run_linter", 'bash_execute', 'write_tmp_file'],
+    // [中文注释] 你是一个严格的代码审查员。你的任务是验证 Coder 提交的代码修改是否正确。
+    systemPrompt: `You are a strict Code Verifier. Your task is to verify if the code modifications made by the Coder are correct and meet the requirements.
+
+Strict Behavior Guidelines:
+1. VERIFY LOGIC: Read the modified files and verify the logic.
+2. REPORT ISSUES: If you find any bugs or syntax errors, report them back immediately.`,
     criticalReminder: 'CRITICAL: 这是纯验证任务。严禁修改项目源码。必须执行真实的测试命令。'
 };
 

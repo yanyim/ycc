@@ -1,11 +1,39 @@
-import {END, START, StateGraph} from "@langchain/langgraph";
-import {AIMessage, HumanMessage, SystemMessage} from "@langchain/core/messages";
-import {z} from "zod";
-import {GlobalStateAnnotation} from "./state";
-import {CODER_AGENT, EXPLORE_AGENT, VERIFIER_AGENT} from "./config/agents";
-import {CodeToolRegistry} from "./tools/registry";
-import {createWorkerGraph} from "./graphs/workerGraph";
-import type {AgentEvent} from "./types/events";
+// src/agent/orchestrator.ts
+import { END, START, StateGraph } from "@langchain/langgraph";
+import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { z } from "zod";
+import { GlobalStateAnnotation } from "./state";
+import { CODER_AGENT, EXPLORE_AGENT, VERIFIER_AGENT } from "./config/agents";
+import { CodeToolRegistry } from "./tools/registry";
+import { createWorkerGraph } from "./graphs/workerGraph";
+import type { AgentEvent } from "./types/events";
+
+/**
+ * [Supervisor 提示词中文翻译]
+ * 你是一个多智能体编码系统的执行主管。
+ * 你的工作是理解用户的请求，并将任务委托给合适的下级智能体（Explorer, Coder, Verifier）。
+ * * 严格的工作流规则：
+ * 1. 委托：根据智能体的能力，将任务路由给正确的智能体。
+ * 2. 避免冗余：如果一个智能体汇报他们已经完成了任务，除非用户明确要求，否则不要再次去验证它。
+ * 3. 终止（极其重要）：一旦用户的原始请求已完全解决，你必须将 nextWorker 指定为 "FINISH" 以停止系统。
+ * * JSON 输出格式：
+ * 你必须严格遵守以下 JSON 结构。绝对禁止发明新的键名（Key）或改变大小写。
+ */
+const SUPERVISOR_PROMPT = `You are the executive Supervisor of a multi-agent coding system.
+Your job is to understand the user's request and delegate tasks to the appropriate sub-agents (Explorer, Coder, Verifier).
+
+Strict Workflow Rules:
+1. DELEGATION: Route the task to the correct agent based on their capabilities.
+2. AVOID REDUNDANCY: If an agent reports that they have successfully completed the task, DO NOT verify it again unless explicitly requested by the user.
+3. TERMINATION (CRITICAL): Once you determine that the user's original request has been fully resolved, you MUST assign "FINISH" as the nextWorker.
+
+CRITICAL JSON OUTPUT FORMAT:
+You must strictly adhere to the following exact JSON structure. DO NOT invent new keys. Pay strict attention to camelCase and exact enum values.
+{
+  "reasoning": "Your thought process (optional)",
+  "message": "Specific instructions for the next agent, or direct reply to the user if finished.",
+  "nextWorker": "explorer" | "coder" | "verifier" | "FINISH"
+}`;
 
 export class CodeAgentOrchestrator {
     private graph: any; // 编译后的主图
@@ -51,19 +79,9 @@ export class CodeAgentOrchestrator {
                 nextWorker: z.enum(["explorer", "coder", "verifier", "FINISH"]).describe("下一个唤醒的智能体。如果是闲聊、或者任务已完成需要等待用户输入，必须输出 FINISH"),
             });
 
-            const supervisorModel = this.llmModel.withStructuredOutput(routingSchema, {name: "route_task"});
+            const supervisorModel = this.llmModel.withStructuredOutput(routingSchema, { name: "route_task" });
 
-            const systemPrompt = `你是一个高级研发项目的统筹大脑(Supervisor)。你的团队有：
-- explorer: 负责搜索、阅读代码，不改变文件。
-- coder: 负责编写和修改代码。
-- verifier: 负责运行测试验证代码。
-
-【你的行为准则】：
-1. 闲聊打招呼（如用户说“你好”）：将 nextWorker 设为 "FINISH"，在 message 中友好地回复用户。
-2. 接到具体需求：思考该派谁去工作，将 nextWorker 设为对应角色，并在 message 中写下给该角色的具体执行指令。
-3. 任务完成验收：如果代码已经修改并被 verifier 验证通过，将 nextWorker 设为 "FINISH"，在 message 中向用户总结成果。
-
-【严重警告】：你必须严格输出匹配 Schema 的 JSON 对象！绝对禁止输出 JSON 数组 (Array) 或纯文本！`;
+            const systemPrompt = SUPERVISOR_PROMPT;
 
             if (this.delayMs > 0) {
                 await new Promise(resolve => setTimeout(resolve, this.delayMs));
@@ -77,7 +95,7 @@ export class CodeAgentOrchestrator {
             return {
                 nextWorker: response.nextWorker,
                 // 这里我们依然只把 message 放入流中供后续使用
-                messages: [new AIMessage({content: response.message, name: "supervisor"})]
+                messages: [new AIMessage({ content: response.message, name: "supervisor" })]
             };
         };
 
@@ -96,7 +114,7 @@ export class CodeAgentOrchestrator {
                         extractedResult: ""
                     }, {
                         ...config,
-                        recursionLimit: 8 // 🌟 最多允许 Agent -> Tool 往返 8 次，超过直接抛出异常！
+                        recursionLimit: 8 // 最多允许 Agent -> Tool 往返 8 次，超过直接抛出异常！
                     });
 
                     const resultText = subGraphResult.extractedResult || "子任务执行结束，但未提取出有效的文本结论。";
@@ -124,14 +142,12 @@ export class CodeAgentOrchestrator {
             };
         };
 
-        // 4 & 5. [修复 Error 2-6]: 改为严格的连续链式调用！
-        // 这样 TypeScript 的推断流就能带着新节点类型一直往下传
+        // 4 & 5. 改为严格的连续链式调用！
         this.graph = new StateGraph(GlobalStateAnnotation)
             .addNode("supervisor", supervisorNode)
             .addNode("explorer", createWorkerWrapper(exploreSubGraph, "ExploreAgent"))
             .addNode("coder", createWorkerWrapper(coderSubGraph, "CoderAgent"))
             .addNode("verifier", createWorkerWrapper(verifierSubGraph, "VerifierAgent"))
-            // 现在的 TS 能够正确识别这些自定义节点名了
             .addEdge(START, "supervisor")
             .addConditionalEdges(
                 "supervisor",
@@ -141,13 +157,9 @@ export class CodeAgentOrchestrator {
             .addEdge("explorer", "supervisor")
             .addEdge("coder", "supervisor")
             .addEdge("verifier", "supervisor")
-            .compile(); // 最终编译赋值
+            .compile();
     }
 
-    /**
-     * 主入口：供 UI 层调用的事件流生成器
-     * 🌟 修改：接收完整的 Message 历史，而不仅是单句 Prompt
-     */
     /**
      * 主入口：供 UI 层调用的事件流生成器
      */
@@ -166,15 +178,18 @@ export class CodeAgentOrchestrator {
             taskStatus: 'running' as const
         };
 
-        const stream = await this.graph.streamEvents(initialState, {version: "v2"});
+        // 🌟 终极防死循环保护：限制大老板（Supervisor）的递归调度次数
+        const stream = await this.graph.streamEvents(initialState, {
+            version: "v2",
+            recursionLimit: 10 // 如果老板反复派发任务超过 10 次还不说 FINISH，强制熔断！
+        });
 
         try {
-            // 🌟 新增：用于记录图执行过程中最后产出的一条消息
             let finalResult = "";
             let currentTopNode = "";
 
             for await (const event of stream) {
-                const {event: eventType, name, data} = event;
+                const { event: eventType, name, data } = event;
 
                 switch (eventType) {
                     case "on_chat_model_stream":
@@ -185,11 +200,11 @@ export class CodeAgentOrchestrator {
                         break;
 
                     case "on_tool_start":
-                        yield {type: 'tool_start', toolName: name, args: data.input};
+                        yield { type: 'tool_start', toolName: name, args: data.input };
                         break;
 
                     case "on_tool_end":
-                        yield {type: 'tool_end', toolName: name, result: "执行成功 (截断显示...)"};
+                        yield { type: 'tool_end', toolName: name, result: "执行成功 (截断显示...)" };
                         break;
 
                     case "on_chain_start":
@@ -200,8 +215,7 @@ export class CodeAgentOrchestrator {
                         break;
 
                     case "on_chain_end":
-                        // 🌟 核心修复：拦截节点的结束事件，提取它们汇报的消息作为最终结果
-                        // 这样就不需要去调用危险的 getState() 了！
+                        // 拦截节点的结束事件，提取它们汇报的消息作为最终结果
                         if (['supervisor', 'explorer', 'coder', 'verifier'].includes(name)) {
                             if (data.output?.messages && data.output.messages.length > 0) {
                                 const msgs = data.output.messages;
@@ -213,10 +227,15 @@ export class CodeAgentOrchestrator {
             }
 
             // 图执行完毕，直接 yield 我们收集到的最后一条消息
-            yield {type: 'task_complete', finalResult};
+            yield { type: 'task_complete', finalResult };
 
         } catch (error: any) {
-            yield {type: 'error', message: error.message};
+            // 捕获可能的主图 recursionLimit 异常并反馈给前端
+            if (error.name === 'GraphRecursionError' || error.message?.includes('recursion')) {
+                yield { type: 'error', message: "系统检测到死循环，已强制终止任务。" };
+            } else {
+                yield { type: 'error', message: error.message };
+            }
         }
     }
 }

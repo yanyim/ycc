@@ -5,9 +5,11 @@ import type {AgentDefinition} from "../config/agents";
 // 导入自定义实现的文件系统工具工厂
 import {
     createAnalyzeFileTool,
+    createEditFileTool,
     createGrepSearchTool,
     createListFilesTool,
-    createReadFileTool
+    createReadFileTool,
+    createWriteFileTool
 } from "../../tools/file-system";
 
 /**
@@ -58,6 +60,8 @@ export class CodeToolRegistry {
         tools.push(createReadFileTool(this.workspacePath));    // 工具名: read_file
         tools.push(createGrepSearchTool(this.workspacePath));  // 工具名: grep_search
         tools.push(createAnalyzeFileTool(this.workspacePath)); // 工具名: analyze_file
+        tools.push(createWriteFileTool(this.workspacePath)); // 工具名: analyze_file
+        tools.push(createEditFileTool(this.workspacePath)); // 工具名: analyze_file
 
         // --- 补充自定义工具：命令行执行 ---
         tools.push(
