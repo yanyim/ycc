@@ -1,45 +1,76 @@
-import { tool } from "@langchain/core/tools";
+// src/tools/file-system/createListFiles.ts
+import { DynamicStructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import fg from "fast-glob";
-import ignore from "ignore";
-import { resolve } from "path";
+import { existsSync, readFileSync } from "fs";
+import path from "path";
 import { validateAndResolvePath } from "./utils";
 
-export function createListFilesTool(projectRoot: string) {
-    return tool(
-        async ({ pattern = "**/*", directory = "." }) => {
+export const listFilesSchema = z.object({
+    directory: z.string().optional().default(".").describe(
+        "The relative directory path to explore. Defaults to '.'. \n" +
+        "Examples: 'docs', 'src/components', or '.' for the project root."
+    ),
+    pattern: z.string().optional().default("**/*").describe(
+        "Glob pattern to filter files. Defaults to '**/*'. \n" +
+        "Examples: '**/*.ts' for TypeScript files, 'src/**/*.md' for markdown files inside src."
+    )
+});
+
+export const listFilesDescription =
+    "Retrieves the directory tree structure. Useful for exploring the codebase, finding specific files, or understanding project architecture.";
+
+export const createListFilesTool = (workspacePath: string) => {
+    return new DynamicStructuredTool({
+        name: "list_files",
+        description: listFilesDescription,
+        schema: listFilesSchema,
+        func: async ({ directory, pattern }) => {
             try {
-                const targetDir = validateAndResolvePath(projectRoot, directory);
+                const safeDirPath = validateAndResolvePath(workspacePath, directory);
 
-                const ig = ignore();
-                const gitignoreFile = Bun.file(resolve(projectRoot, ".gitignore"));
-                if (await gitignoreFile.exists()) {
-                    ig.add(await gitignoreFile.text());
+                // 🌟 核心修复 1：动态解析 .gitignore
+                const ignorePatterns = ['**/node_modules/**', '**/.git/**'];
+                const gitignorePath = path.join(workspacePath, '.gitignore');
+
+                if (existsSync(gitignorePath)) {
+                    const gitignoreContent = readFileSync(gitignorePath, 'utf-8');
+                    const customIgnores = gitignoreContent
+                        .split('\n')
+                        .map(line => line.trim())
+                        .filter(line => line && !line.startsWith('#'))
+                        .map(line => {
+                            // 简单的 gitignore 转 glob 规则
+                            let globPattern = line;
+                            if (globPattern.startsWith('/')) globPattern = globPattern.slice(1);
+                            if (globPattern.endsWith('/')) globPattern = globPattern.slice(0, -1);
+                            return `**/${globPattern}/**`;
+                        });
+                    ignorePatterns.push(...customIgnores);
                 }
-                ig.add([".git/**", "node_modules/**"]); // 强制底线过滤
 
-                const files = await fg(pattern, {
-                    cwd: targetDir,
-                    dot: true,
+                const entries = await fg(pattern, {
+                    cwd: safeDirPath,
                     onlyFiles: true,
+                    dot: true,
+                    ignore: ignorePatterns // 应用整合后的忽略列表
                 });
 
-                const filteredFiles = files.filter(file => !ig.ignores(file));
+                if (entries.length === 0) {
+                    return `No files found matching pattern '${pattern}' in directory '${directory}'.`;
+                }
 
-                return filteredFiles.length > 0
-                    ? `Found ${filteredFiles.length} files:\n${filteredFiles.join("\n")}`
-                    : "No matching files found.";
+                const maxFiles = 100;
+                let result = entries.slice(0, maxFiles).join('\n');
+
+                if (entries.length > maxFiles) {
+                    result += `\n\n... (And ${entries.length - maxFiles} more files. Please use a more specific directory or pattern to narrow down the search.)`;
+                }
+
+                return `Found ${entries.length} files:\n${result}`;
             } catch (error: any) {
                 return `Error listing files: ${error.message}`;
             }
-        },
-        {
-            name: "list_files",
-            description: "List files in the directory. Respects .gitignore. Always use relative paths.",
-            schema: z.object({
-                pattern: z.string().optional().describe("Glob pattern, e.g., '**/*.ts'"),
-                directory: z.string().optional().describe("Relative directory to search in"),
-            }),
         }
-    );
-}
+    });
+};

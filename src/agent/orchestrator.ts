@@ -84,24 +84,43 @@ export class CodeAgentOrchestrator {
         // 3. 高阶工厂函数：包装子图
         const createWorkerWrapper = (subGraph: any, workerName: string) => {
             return async (state: typeof GlobalStateAnnotation.State, config: any) => {
-                // [修复 Error 1]: 增加可选链和安全容错
                 const lastMessage = state.messages[state.messages.length - 1];
                 const currentInstruction = lastMessage ? String(lastMessage.content) : "请继续执行任务";
 
-                const subGraphResult = await subGraph.invoke({
-                    currentTask: currentInstruction,
-                    inheritedHeavyContext: state.heavyContext,
-                    messages: []
-                }, config);
+                try {
+                    // 🌟 核心修复：注入 recursionLimit，强制限制子图的最大循环次数
+                    const subGraphResult = await subGraph.invoke({
+                        currentTask: currentInstruction,
+                        inheritedHeavyContext: state.heavyContext,
+                        messages: [],
+                        extractedResult: ""
+                    }, {
+                        ...config,
+                        recursionLimit: 8 // 🌟 最多允许 Agent -> Tool 往返 8 次，超过直接抛出异常！
+                    });
 
-                const finalMessage = subGraphResult.messages[subGraphResult.messages.length - 1];
+                    const resultText = subGraphResult.extractedResult || "子任务执行结束，但未提取出有效的文本结论。";
 
-                return {
-                    messages: [new AIMessage({
-                        content: `[${workerName} 汇报]: ${finalMessage.content}`,
-                        name: workerName
-                    })]
-                };
+                    return {
+                        messages: [new AIMessage({
+                            content: `[${workerName} 汇报]: ${resultText}`,
+                            name: workerName
+                        })]
+                    };
+
+                } catch (error: any) {
+                    // 🌟 核心修复：捕获 LangGraph 的递归超限异常，优雅退出
+                    if (error.name === 'GraphRecursionError' || error.message?.includes('recursion')) {
+                        return {
+                            messages: [new AIMessage({
+                                content: `[${workerName} 异常退出]: 任务执行超过了最大允许步数 (可能发生了工具调用死循环)。已强制终止。`,
+                                name: workerName
+                            })]
+                        };
+                    }
+                    // 其他异常正常抛出
+                    throw error;
+                }
             };
         };
 

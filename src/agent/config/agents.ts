@@ -20,7 +20,7 @@ export const EXPLORE_AGENT: AgentDefinition = {
     description: '快速探索项目代码库，搜索文件、查找引用，不进行任何修改操作。',
     modelTier: 'fast', // 使用便宜、快速的模型 (如 Haiku, Flash, 或本地模型)
     isolation: 'read-only',
-    allowedTools: ['read_file', 'grep', 'glob', 'list_dir'],
+    allowedTools: ['read_file', 'grep', 'glob', 'list_files','grep_search'],
     omitHeavyContext: true, // 核心：不带冗长的历史代码，只带搜索任务
     systemPrompt: `你是一个极致高效的代码探索专家。
 === CRITICAL: READ-ONLY MODE ===
