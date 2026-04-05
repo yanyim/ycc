@@ -25,7 +25,7 @@ export function createWorkerGraph(
     const modelWithTools = tools.length > 0 ? llmModel.bindTools(tools) : llmModel;
 
     // 2. 定义核心思考节点 (Agent Node)
-    const agentNode = async (state: typeof SubAgentStateAnnotation.State) => {
+    const agentNode = async (state: typeof SubAgentStateAnnotation.State,config: any) => {
         const messages = [];
 
         // --- 组装系统 Prompt ---
@@ -49,7 +49,7 @@ export function createWorkerGraph(
         messages.push(...state.localMessages);
 
         // --- 调用大模型 ---
-        const response = await modelWithTools.invoke(messages);
+        const response = await modelWithTools.invoke(messages, config);
 
         // 返回增量状态：将最新的 AI 思考/工具调用指令 追加到 localMessages
         return { localMessages: [response] };

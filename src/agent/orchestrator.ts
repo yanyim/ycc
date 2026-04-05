@@ -40,10 +40,13 @@ export class CodeAgentOrchestrator {
         );
 
         // 2. 定义大老板节点 (Supervisor Node)
-        const supervisorNode = async (state: typeof GlobalStateAnnotation.State) => {
+        const supervisorNode = async (state: typeof GlobalStateAnnotation.State, config: any) => {
+
+            // 🌟 修复点 1：将 reasoning 设为 optional()，防止模型“偷懒”导致解析器崩溃
             const routingSchema = z.object({
-                reasoning: z.string().describe("你做出这个决定的思考过程"),
-                nextWorker: z.enum(["explorer", "coder", "verifier", "FINISH"]).describe("下一个需要被唤醒的智能体，或者任务已完全解决时输出 FINISH"),
+                reasoning: z.string().optional().describe("你的内部思考过程，判断当前处于什么阶段。"),
+                message: z.string().describe("如果派发任务，写给下级智能体的具体工作指令；如果只是打招呼或闲聊，写给用户的直接回复。"),
+                nextWorker: z.enum(["explorer", "coder", "verifier", "FINISH"]).describe("下一个唤醒的智能体。如果是闲聊、或者任务已完成需要等待用户输入，必须输出 FINISH"),
             });
 
             const supervisorModel = this.llmModel.withStructuredOutput(routingSchema, {name: "route_task"});
@@ -52,22 +55,29 @@ export class CodeAgentOrchestrator {
 - explorer: 负责搜索、阅读代码，不改变文件。
 - coder: 负责编写和修改代码。
 - verifier: 负责运行测试验证代码。
-根据当前的对话历史和任务进度，决定下一步派谁去工作。如果所有需求都已满足，并且(如果有代码修改)已经被 verifier 验证通过，则输出 FINISH。`;
+
+【你的行为准则】：
+1. 闲聊打招呼（如用户说“你好”）：将 nextWorker 设为 "FINISH"，在 message 中友好地回复用户。
+2. 接到具体需求：思考该派谁去工作，将 nextWorker 设为对应角色，并在 message 中写下给该角色的具体执行指令。
+3. 任务完成验收：如果代码已经修改并被 verifier 验证通过，将 nextWorker 设为 "FINISH"，在 message 中向用户总结成果。
+
+【严重警告】：你必须严格输出匹配 Schema 的 JSON 对象！绝对禁止输出 JSON 数组 (Array) 或纯文本！`;
 
             const response = await supervisorModel.invoke([
                 new SystemMessage(systemPrompt),
                 ...state.messages
-            ]);
+            ], config);
 
             return {
                 nextWorker: response.nextWorker,
-                messages: [new AIMessage({content: `[Supervisor 思考]: ${response.reasoning}`, name: "supervisor"})]
+                // 这里我们依然只把 message 放入流中供后续使用
+                messages: [new AIMessage({content: response.message, name: "supervisor"})]
             };
         };
 
         // 3. 高阶工厂函数：包装子图
         const createWorkerWrapper = (subGraph: any, workerName: string) => {
-            return async (state: typeof GlobalStateAnnotation.State) => {
+            return async (state: typeof GlobalStateAnnotation.State, config: any) => {
                 // [修复 Error 1]: 增加可选链和安全容错
                 const lastMessage = state.messages[state.messages.length - 1];
                 const currentInstruction = lastMessage ? String(lastMessage.content) : "请继续执行任务";
@@ -76,7 +86,7 @@ export class CodeAgentOrchestrator {
                     currentTask: currentInstruction,
                     inheritedHeavyContext: state.heavyContext,
                     localMessages: []
-                });
+                }, config);
 
                 const finalMessage = subGraphResult.localMessages[subGraphResult.localMessages.length - 1];
 
@@ -113,11 +123,13 @@ export class CodeAgentOrchestrator {
      * 主入口：供 UI 层调用的事件流生成器
      * 🌟 修改：接收完整的 Message 历史，而不仅是单句 Prompt
      */
+    /**
+     * 主入口：供 UI 层调用的事件流生成器
+     */
     public async* executeTask(chatHistory: {
         role: string,
         content: string
     }[]): AsyncGenerator<AgentEvent, void, unknown> {
-        // 将普通 JSON 消息转换为 LangChain 标准 Message
         const langChainMessages = chatHistory.map(msg =>
             msg.role === 'user' ? new HumanMessage(msg.content) :
                 msg.role === 'system' ? new SystemMessage(msg.content) :
@@ -130,11 +142,14 @@ export class CodeAgentOrchestrator {
         };
 
         const stream = await this.graph.streamEvents(initialState, {version: "v2"});
+
         try {
+            // 🌟 新增：用于记录图执行过程中最后产出的一条消息
+            let finalResult = "";
+
             for await (const event of stream) {
                 const {event: eventType, name, data} = event;
 
-                // 过滤并映射我们关心的事件给 UI 层
                 switch (eventType) {
                     case "on_chat_model_stream":
                         // 模型正在打字输出
@@ -144,30 +159,34 @@ export class CodeAgentOrchestrator {
                         break;
 
                     case "on_tool_start":
-                        // 拦截到某个打工人正在调用底层工具
                         yield {type: 'tool_start', toolName: name, args: data.input};
                         break;
 
                     case "on_tool_end":
-                        // 工具执行完毕
                         yield {type: 'tool_end', toolName: name, result: "执行成功 (截断显示...)"};
                         break;
 
                     case "on_chain_start":
-                        // 当进入某个特定 Agent 节点时抛出
                         if (['explorer', 'coder', 'verifier'].includes(name)) {
                             yield {type: 'agent_start', agentName: name, description: `开始执行子任务...`};
+                        }
+                        break;
+
+                    case "on_chain_end":
+                        // 🌟 核心修复：拦截节点的结束事件，提取它们汇报的消息作为最终结果
+                        // 这样就不需要去调用危险的 getState() 了！
+                        if (['supervisor', 'explorer', 'coder', 'verifier'].includes(name)) {
+                            if (data.output?.messages && data.output.messages.length > 0) {
+                                const msgs = data.output.messages;
+                                finalResult = msgs[msgs.length - 1].content;
+                            }
                         }
                         break;
                 }
             }
 
-            // 图执行完毕
-            const finalState = await this.graph.getState();
-            const finalMessages = finalState.values.messages;
-            const lastMsg = finalMessages[finalMessages.length - 1];
-
-            yield {type: 'task_complete', finalResult: lastMsg.content};
+            // 图执行完毕，直接 yield 我们收集到的最后一条消息
+            yield {type: 'task_complete', finalResult};
 
         } catch (error: any) {
             yield {type: 'error', message: error.message};
