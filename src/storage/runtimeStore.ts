@@ -5,6 +5,9 @@ export interface RuntimeState {
     isGenerating: boolean;
     setIsGenerating: (status: boolean) => void;
 
+    agentStatus: { agentName: string; statusText: string } | null;
+    setAgentStatus: (status: { agentName: string; statusText: string } | null) => void;
+
     // 例如：控制命令面板的显隐
     showCommandPanel: boolean;
     setShowCommandPanel: (show: boolean) => void;
@@ -27,6 +30,9 @@ export const createRuntimeStore = () => {
         isGenerating: false,
         setIsGenerating: (status) => set({ isGenerating: status }),
 
+        agentStatus: null,
+        setAgentStatus: (status) => set({ agentStatus: status }),
+        
         showCommandPanel: false,
         setShowCommandPanel: (show) => set({ showCommandPanel: show }),
 

@@ -1,11 +1,11 @@
-import { StateGraph, START, END } from "@langchain/langgraph";
-import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
-import { z } from "zod";
-import { GlobalStateAnnotation } from "./state";
-import { AGENT_REGISTRY, EXPLORE_AGENT, CODER_AGENT, VERIFIER_AGENT } from "./config/agents";
-import { CodeToolRegistry } from "./tools/registry";
-import { createWorkerGraph } from "./graphs/workerGraph";
-import type { AgentEvent } from "./types/events";
+import {END, START, StateGraph} from "@langchain/langgraph";
+import {AIMessage, HumanMessage, SystemMessage} from "@langchain/core/messages";
+import {z} from "zod";
+import {GlobalStateAnnotation} from "./state";
+import {CODER_AGENT, EXPLORE_AGENT, VERIFIER_AGENT} from "./config/agents";
+import {CodeToolRegistry} from "./tools/registry";
+import {createWorkerGraph} from "./graphs/workerGraph";
+import type {AgentEvent} from "./types/events";
 
 export class CodeAgentOrchestrator {
     private graph: any; // 编译后的主图
@@ -46,7 +46,7 @@ export class CodeAgentOrchestrator {
                 nextWorker: z.enum(["explorer", "coder", "verifier", "FINISH"]).describe("下一个需要被唤醒的智能体，或者任务已完全解决时输出 FINISH"),
             });
 
-            const supervisorModel = this.llmModel.withStructuredOutput(routingSchema, { name: "route_task" });
+            const supervisorModel = this.llmModel.withStructuredOutput(routingSchema, {name: "route_task"});
 
             const systemPrompt = `你是一个高级研发项目的统筹大脑(Supervisor)。你的团队有：
 - explorer: 负责搜索、阅读代码，不改变文件。
@@ -61,7 +61,7 @@ export class CodeAgentOrchestrator {
 
             return {
                 nextWorker: response.nextWorker,
-                messages: [new AIMessage({ content: `[Supervisor 思考]: ${response.reasoning}`, name: "supervisor" })]
+                messages: [new AIMessage({content: `[Supervisor 思考]: ${response.reasoning}`, name: "supervisor"})]
             };
         };
 
@@ -111,43 +111,52 @@ export class CodeAgentOrchestrator {
 
     /**
      * 主入口：供 UI 层调用的事件流生成器
+     * 🌟 修改：接收完整的 Message 历史，而不仅是单句 Prompt
      */
-    public async *executeTask(userPrompt: string): AsyncGenerator<AgentEvent, void, unknown> {
+    public async* executeTask(chatHistory: {
+        role: string,
+        content: string
+    }[]): AsyncGenerator<AgentEvent, void, unknown> {
+        // 将普通 JSON 消息转换为 LangChain 标准 Message
+        const langChainMessages = chatHistory.map(msg =>
+            msg.role === 'user' ? new HumanMessage(msg.content) :
+                msg.role === 'system' ? new SystemMessage(msg.content) :
+                    new AIMessage(msg.content)
+        );
+
         const initialState = {
-            messages: [new HumanMessage(userPrompt)],
+            messages: langChainMessages,
             taskStatus: 'running' as const
         };
 
-        // streamEvents(v2) 能够穿透主图，捕捉到子图内部发生的所有细节！
-        const stream = await this.graph.streamEvents(initialState, { version: "v2" });
-
+        const stream = await this.graph.streamEvents(initialState, {version: "v2"});
         try {
             for await (const event of stream) {
-                const { event: eventType, name, data } = event;
+                const {event: eventType, name, data} = event;
 
                 // 过滤并映射我们关心的事件给 UI 层
                 switch (eventType) {
                     case "on_chat_model_stream":
                         // 模型正在打字输出
                         if (data?.chunk?.content) {
-                            yield { type: 'message_chunk', content: data.chunk.content };
+                            yield {type: 'message_chunk', content: data.chunk.content};
                         }
                         break;
 
                     case "on_tool_start":
                         // 拦截到某个打工人正在调用底层工具
-                        yield { type: 'tool_start', toolName: name, args: data.input };
+                        yield {type: 'tool_start', toolName: name, args: data.input};
                         break;
 
                     case "on_tool_end":
                         // 工具执行完毕
-                        yield { type: 'tool_end', toolName: name, result: "执行成功 (截断显示...)" };
+                        yield {type: 'tool_end', toolName: name, result: "执行成功 (截断显示...)"};
                         break;
 
                     case "on_chain_start":
                         // 当进入某个特定 Agent 节点时抛出
                         if (['explorer', 'coder', 'verifier'].includes(name)) {
-                            yield { type: 'agent_start', agentName: name, description: `开始执行子任务...` };
+                            yield {type: 'agent_start', agentName: name, description: `开始执行子任务...`};
                         }
                         break;
                 }
@@ -158,10 +167,10 @@ export class CodeAgentOrchestrator {
             const finalMessages = finalState.values.messages;
             const lastMsg = finalMessages[finalMessages.length - 1];
 
-            yield { type: 'task_complete', finalResult: lastMsg.content };
+            yield {type: 'task_complete', finalResult: lastMsg.content};
 
         } catch (error: any) {
-            yield { type: 'error', message: error.message };
+            yield {type: 'error', message: error.message};
         }
     }
 }
