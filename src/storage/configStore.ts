@@ -1,11 +1,19 @@
-// store/configStore.ts
-import {createStore} from 'zustand';
-import {persist, createJSONStorage} from 'zustand/middleware';
-import {createFileStorage} from './storage'; // 指向 ~/.ycc/config.json
+// src/storage/configStore.ts
+import { createStore } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { createFileStorage } from './storage';
+import { coreInitLogic } from '../commands/init/initImpl'; // 🌟 引入抽离的共享逻辑
+
+export interface ModelInfo {
+    provider: string;
+    model: string;
+}
 
 export interface ConfigState {
-    modelConfig: { provider: string; model: string };
-    setModelConfig: (config: { provider: string; model: string }) => void;
+    models: ModelInfo[];
+    setModels: (models: ModelInfo[]) => void;
+    currentModel: string;
+    setCurrentModel: (model: string) => void;
     _hasHydrated: boolean;
     setHasHydrated: (state: boolean) => void;
 }
@@ -14,16 +22,33 @@ export const createConfigStore = () => {
     return createStore<ConfigState>()(
         persist(
             (set) => ({
-                modelConfig: {provider: 'openai', model: 'gpt-3.5-turbo'},
-                setModelConfig: (config) => set({modelConfig: config}),
+                models: [],
+                setModels: (models) => set({ models }),
+                currentModel: '',
+                setCurrentModel: (model) => set({ currentModel: model }),
                 _hasHydrated: false,
-                setHasHydrated: (state) => set({_hasHydrated: state}),
+                setHasHydrated: (state) => set({ _hasHydrated: state }),
             }),
             {
-                name: 'global-config', // 这个 name 是 JSON 内部的 key
+                name: 'global-config', // json 内部包装键名，Zustand 不会使用它做文件名
                 storage: createJSONStorage(() => createFileStorage('config.json')),
-                onRehydrateStorage: () => (state) => {
-                    if (state) state.setHasHydrated(true);
+                onRehydrateStorage: () => async (state) => {
+                    if (state) {
+                        state.setHasHydrated(true);
+
+                        // 🌟 修复冲突：hydration 完成后如果发现拿不到有效配置 (空数组)
+                        // 则强制触发 initImpl 的逻辑获取并初始化最新配置
+                        if (!state.models || state.models.length === 0) {
+                            try {
+                                const { state: initState } = await coreInitLogic();
+                                // 将生成的正确配置同步到当前的内存 Store 中
+                                state.setModels(initState.models);
+                                state.setCurrentModel(initState.currentModel);
+                            } catch (err) {
+                                console.error('自动初始化备用配置失败:', err);
+                            }
+                        }
+                    }
                 },
             }
         )

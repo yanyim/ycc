@@ -1,20 +1,15 @@
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Box } from 'ink';
 import { streamText, type ModelMessage } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
+import { createModel } from './utils/ai';
 import { Welcome } from './components/Welcome';
 import { ChatArea } from './components/ChatArea';
 import { CommandInput } from './components/CommandInput';
-import { commandRegistry } from './commands';
+import { commandRegistry, commandList } from './commands';
 import type { Message } from './types';
 
 // 🌟 引入状态 Hook
 import { useSessionStore, useRuntimeStore, useConfigStore } from './storage';
-
-const customModel = createOpenAI({
-    apiKey: process.env.AI_API_KEY || '',
-    baseURL: process.env.AI_BASE_URL || '',
-});
 
 export const App: React.FC = () => {
     // 1. Session Store (历史与文件)
@@ -27,9 +22,35 @@ export const App: React.FC = () => {
     const setCurrentStream = useRuntimeStore(state => state.setCurrentStream);
     const isGenerating = useRuntimeStore(state => state.isGenerating);
     const setIsGenerating = useRuntimeStore(state => state.setIsGenerating);
+    const setAvailableCommands = useRuntimeStore(state => state.setAvailableCommands);
+    const mode = useRuntimeStore(state => state.mode);
+    const setMode = useRuntimeStore(state => state.setMode);
 
     // 3. Config Store (读取配置，此处可选)
-    const modelConfig = useConfigStore(state => state.modelConfig);
+    const models = useConfigStore(state => state.models);
+    const currentModelName = useConfigStore(state => state.currentModel);
+    const setCurrentModel = useConfigStore(state => state.setCurrentModel);
+
+    // 🌟 动态生成模型实例
+    const activeModel = useMemo(() => {
+        const modelInfo = models.find(m => m.model === currentModelName);
+        const provider = modelInfo?.provider || 'openai';
+        return createModel(provider, currentModelName || 'gpt-3.5-turbo');
+    }, [models, currentModelName]);
+
+    useEffect(() => {
+        // 只有在普通模式下，才加载默认的系统命令
+        if (mode === 'normal') {
+            setAvailableCommands(
+                commandList
+                    .filter(cmd => !cmd.isHidden)
+                    .map(cmd => ({
+                        label: `/${cmd.name} (${cmd.description}) `,
+                        value: cmd.name
+                    }))
+            );
+        }
+    }, [mode, setAvailableCommands]);
 
     const handleInputSubmit = async (text: string) => {
         if (isGenerating) return;
@@ -45,7 +66,17 @@ export const App: React.FC = () => {
             if (command) {
                 try {
                     // 🌟 传入全新的 Context
-                    await command.execute({ args, options: {}, messages, addMessage, clearMessages });
+                    await command.execute({
+                        args,
+                        options: {},
+                        messages,
+                        models,
+                        addMessage,
+                        clearMessages,
+                        setMode,
+                        setAvailableCommands,
+                        setCurrentModel
+                    });
                 } catch (error: any) {
                     await addMessage({ id: crypto.randomUUID(), role: 'system', content: `[命令执行失败]: ${error.message}` });
                 }
@@ -74,8 +105,8 @@ export const App: React.FC = () => {
                 }));
 
             const result = await streamText({
-                // 你也可以在此处使用 modelConfig.model 等全局配置
-                model: customModel.chat('qwen/qwen3.6-plus:free'),
+                // 使用动态模型
+                model: activeModel,
                 messages: aiMessages,
             });
 

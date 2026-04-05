@@ -1,81 +1,91 @@
 # ycc
 
-## Project Overview
+## 项目概述
 
-**ycc** is a terminal-based AI chat application built with **Bun**, **React**, and **Ink** (React for CLI). It provides an interactive command-line interface where users can converse with an AI model (OpenAI-compatible) and execute built-in slash commands.
+**ycc** 是一个基于终端的 AI 聊天应用，使用 **Bun**、**React** 和 **Ink**（终端 UI 的 React）构建。它提供了一个交互式命令行界面，用户可以与 AI 模型（OpenAI 兼容）对话并执行内置的斜杠命令。
 
-### Key Features
-- **AI Chat Interface**: Stream responses from an OpenAI-compatible API directly in the terminal
-- **Slash Commands**: Extensible command system (`/clear`, `/exit`, `/status`)
-- **Conversation History**: Maintains full conversation context for multi-turn AI interactions
-- **Component-based UI**: Built with Ink (React components for terminal)
+### 核心特性
+- **AI 聊天界面**：直接在终端中流式接收 OpenAI 兼容 API 的响应
+- **斜杠命令系统**：可扩展的命令注册机制（`/clear`、`/exit`、`/status`、`/init`）
+- **会话持久化**：自动将会话历史保存到 `~/.ycc/sessions/` 目录
+- **状态管理**：使用 Zustand 管理会话、运行时和配置状态
+- **组件化 UI**：基于 Ink 的 React 终端组件
 
-### Tech Stack
-- **Runtime**: Bun (v1.3.11+)
-- **UI Framework**: React 19 + Ink 6 (terminal UI components)
-- **AI Integration**: Vercel AI SDK (`ai`) + `@ai-sdk/openai`
-- **CLI Framework**: Commander.js
-- **Language**: TypeScript (ESNext, strict mode)
-- **Package Manager**: pnpm (configured via `packageManager` field)
+### 技术栈
+- **运行时**：Bun (v1.3.11+)
+- **UI 框架**：React 19 + Ink 6（终端 UI 组件）
+- **AI 集成**：Vercel AI SDK (`ai`) + `@ai-sdk/openai`
+- **CLI 框架**：Commander.js
+- **状态管理**：Zustand（带持久化中间件）
+- **语言**：TypeScript (ESNext, strict mode)
 
-## Project Structure
+## 项目结构
 
 ```
 src/
-├── index.tsx          # Entry point - renders the App
-├── App.tsx            # Main application component (state management, AI streaming)
-├── types.ts           # Message type definition
-├── components/        # React UI components
-│   ├── ChatArea.tsx   # Displays conversation history
-│   ├── CommandInput.tsx # Input field for user messages
-│   └── Welcome.tsx    # Welcome screen
-├── commands/          # Slash command implementations
-│   ├── index.ts       # Command registry
-│   ├── clear/         # /clear command
-│   ├── exit/          # /exit command
-│   └── status/        # /status command
-├── stu/               # Build scripts and utilities
-│   ├── build.ts       # Build entry point
-│   ├── build2.ts
-│   └── secret-tool.ts
-├── types/             # TypeScript type definitions
-│   └── command.ts     # Command interface
-└── utils/             # Utility functions (currently empty)
+├── index.tsx              # 入口文件 - 渲染 App（带 StoreProvider）
+├── App.tsx                # 主应用组件（状态管理、AI 流式处理）
+├── types.ts               # Message 类型定义
+├── commands/              # 斜杠命令实现
+│   ├── index.ts           # 命令注册表
+│   ├── clear/             # /clear 命令
+│   ├── exit/              # /exit 命令
+│   ├── status/            # /status 命令
+│   └── init/              # /init 命令
+├── components/            # React UI 组件
+│   ├── ChatArea.tsx       # 显示聊天历史
+│   ├── CommandInput.tsx   # 用户输入框
+│   └── Welcome.tsx        # 欢迎界面
+├── storage/               # Zustand 状态管理
+│   ├── index.ts           # 统一导出
+│   ├── sessionStore.ts    # 会话管理（历史与文件持久化）
+│   ├── runtimeStore.ts    # 运行时状态（流式文本、生成状态）
+│   ├── configStore.ts     # 配置管理（模型配置，持久化到文件）
+│   ├── Provider.tsx       # React Context Provider
+│   └── storage.ts         # 文件存储工具
+├── types/                 # TypeScript 类型定义
+│   └── command.ts         # Command 接口定义
+├── setting/               # 设置相关
+└── utils/                 # 工具函数
 ```
 
-## Building and Running
+## 构建与运行
 
-### Prerequisites
-- Bun v1.3.11 or later
-- Environment variables for AI:
-  - `AI_API_KEY`: OpenAI-compatible API key
-  - `AI_BASE_URL`: API base URL
+### 前置要求
+- Bun v1.3.11 或更高版本
+- 环境变量：
+  - `AI_API_KEY`：OpenAI 兼容 API 密钥
+  - `AI_BASE_URL`：API 基础 URL
 
-### Commands
+### 常用命令
 
 ```bash
-# Install dependencies
+# 安装依赖
 bun install
 
-# Run the application
+# 运行应用
 bun run src/index.tsx
 
-# Build (outputs to ./out)
+# 构建（输出到 ./out）
 bun run build
 ```
 
-## Development Conventions
+## 开发规范
 
-- **TypeScript**: Strict mode enabled with ESNext target
-- **JSX**: Uses `react-jsx` transform
-- **Module System**: ESM with bundler-style resolution
-- **Code Style**: Strict type checking, no unused locals/parameters enforcement disabled
-- **Command Pattern**: New slash commands should be added to `src/commands/` following the `Command` interface in `src/types/command.ts`
+- **TypeScript**：启用严格模式，ESNext 目标
+- **JSX**：使用 `react-jsx` 转换
+- **模块系统**：ESM
+- **状态管理**：使用 Zustand 创建独立 store，通过 Provider 注入
+- **命令模式**：新斜杠命令应添加到 `src/commands/`，遵循 `src/types/command.ts` 中的 `Command` 接口
+- **会话存储**：会话数据自动持久化到 `~/.ycc/sessions/` 目录，配置文件存储到 `~/.ycc/config.json`
 
-## Architecture Notes
+## 架构说明
 
-- The app uses **Ink** for rendering React components in the terminal
-- AI streaming is handled via Vercel AI SDK's `streamText` function
-- Conversation history is maintained in React state for context-aware AI responses
-- Commands are registered via a Map-based registry system supporting aliases
-- The `openspec/` directory contains configuration for an experimental spec-driven workflow
+- 应用使用 **Ink** 在终端中渲染 React 组件
+- AI 流式响应通过 Vercel AI SDK 的 `streamText` 函数处理
+- 会话历史在 React 状态中维护，支持多轮对话上下文
+- 命令通过 Map 注册系统注册，支持别名
+- 状态管理分为三个独立 store：
+  - `sessionStore`：管理聊天历史和会话持久化
+  - `runtimeStore`：管理临时运行时状态（流式文本、生成标志）
+  - `configStore`：管理用户配置，支持文件持久化

@@ -12,6 +12,14 @@ export interface RuntimeState {
     // 当前正在流式输出的文本
     currentStream: string;
     setCurrentStream: (text: string) => void;
+
+    // 命令列表 (动态变化)
+    availableCommands: { label: string; value: string }[];
+    setAvailableCommands: (commands: { label: string; value: string }[]) => void;
+
+    // 模式 (普通命令 vs 模型选择)
+    mode: 'normal' | 'model-selection';
+    setMode: (mode: 'normal' | 'model-selection') => void;
 }
 
 export const createRuntimeStore = () => {
@@ -24,5 +32,11 @@ export const createRuntimeStore = () => {
 
         currentStream: '',
         setCurrentStream: (text) => set({ currentStream: text }),
+
+        availableCommands: [],
+        setAvailableCommands: (commands) => set({ availableCommands: commands }),
+
+        mode: 'normal',
+        setMode: (mode) => set({ mode: mode }),
     }));
 };
