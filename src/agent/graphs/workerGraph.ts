@@ -1,9 +1,9 @@
-import { StateGraph, START, END } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { SystemMessage, HumanMessage, AIMessage } from "@langchain/core/messages";
-import { SubAgentStateAnnotation } from "../state";
-import type { AgentDefinition } from "../config/agents";
-import type { StructuredTool } from "@langchain/core/tools";
+import {END, START, StateGraph} from "@langchain/langgraph";
+import {ToolNode} from "@langchain/langgraph/prebuilt";
+import {AIMessage, HumanMessage, SystemMessage} from "@langchain/core/messages";
+import {SubAgentStateAnnotation} from "../state";
+import type {AgentDefinition} from "../config/agents";
+import type {StructuredTool} from "@langchain/core/tools";
 
 /**
  * 独立子智能体图工厂 (Sub-Graph Factory)
@@ -25,34 +25,38 @@ export function createWorkerGraph(
     const modelWithTools = tools.length > 0 ? llmModel.bindTools(tools) : llmModel;
 
     // 2. 定义核心思考节点 (Agent Node)
-    const agentNode = async (state: typeof SubAgentStateAnnotation.State,config: any) => {
+    const agentNode = async (state: typeof SubAgentStateAnnotation.State, config: any) => {
         const messages = [];
 
-        // --- 组装系统 Prompt ---
+        // --- 组装 Prompt (保持不变) ---
         let systemPromptText = agentDef.systemPrompt;
-        if (agentDef.criticalReminder) {
-            // 强制在底部注入抗遗忘约束
-            systemPromptText += `\n\n${agentDef.criticalReminder}`;
-        }
+        if (agentDef.criticalReminder) systemPromptText += `\n\n${agentDef.criticalReminder}`;
         messages.push(new SystemMessage(systemPromptText));
 
-        // --- 组装任务上下文 (Methodology 4: Context Trimming) ---
         let taskContext = `[当前任务]:\n${state.currentTask}`;
         if (!agentDef.omitHeavyContext && state.inheritedHeavyContext) {
             taskContext += `\n\n[全局参考上下文]:\n${state.inheritedHeavyContext}`;
         }
-        // 我们将任务上下文伪装成人类的首轮输入，锚定模型的注意力
         messages.push(new HumanMessage(taskContext));
 
-        // --- 载入本地冗长对话历史 ---
-        // localMessages 包含了子图内部不断的 tool_calls 和 tool_results
-        messages.push(...state.localMessages);
+        // --- 加入历史对话 ---
+        messages.push(...state.messages);
 
         // --- 调用大模型 ---
         const response = await modelWithTools.invoke(messages, config);
 
-        // 返回增量状态：将最新的 AI 思考/工具调用指令 追加到 localMessages
-        return { localMessages: [response] };
+        // 🌟 核心逻辑重构：判断是继续干活，还是得出结论了？
+        if (response.tool_calls && response.tool_calls.length > 0) {
+            // 如果它还要调工具，说明还没做完，只把对话压入 messages，不填 extractedResult
+            return {messages: [response]};
+        } else {
+            // 如果它不调工具了，说明子任务大功告成！
+            // 此时不仅把话压入 messages，同时提取内容赋值给你的 extractedResult！
+            return {
+                messages: [response],
+                extractedResult: String(response.content)
+            };
+        }
     };
 
     // 3. 定义工具执行节点 (Tool Node)
@@ -61,7 +65,7 @@ export function createWorkerGraph(
 
     // 4. 定义条件路由：决定是继续调用工具，还是思考结束
     const shouldContinue = (state: typeof SubAgentStateAnnotation.State) => {
-        const messages = state.localMessages;
+        const messages = state.messages;
         const lastMessage = messages[messages.length - 1] as AIMessage;
 
         // 如果 LLM 决定调用工具，流转到 'tools' 节点

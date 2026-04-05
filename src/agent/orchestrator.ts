@@ -85,10 +85,10 @@ export class CodeAgentOrchestrator {
                 const subGraphResult = await subGraph.invoke({
                     currentTask: currentInstruction,
                     inheritedHeavyContext: state.heavyContext,
-                    localMessages: []
+                    messages: []
                 }, config);
 
-                const finalMessage = subGraphResult.localMessages[subGraphResult.localMessages.length - 1];
+                const finalMessage = subGraphResult.messages[subGraphResult.messages.length - 1];
 
                 return {
                     messages: [new AIMessage({
@@ -146,6 +146,7 @@ export class CodeAgentOrchestrator {
         try {
             // 🌟 新增：用于记录图执行过程中最后产出的一条消息
             let finalResult = "";
+            let currentTopNode = "";
 
             for await (const event of stream) {
                 const {event: eventType, name, data} = event;
@@ -153,8 +154,8 @@ export class CodeAgentOrchestrator {
                 switch (eventType) {
                     case "on_chat_model_stream":
                         // 模型正在打字输出
-                        if (data?.chunk?.content) {
-                            yield {type: 'message_chunk', content: data.chunk.content};
+                        if (currentTopNode !== 'supervisor' && data?.chunk?.content) {
+                            yield { type: 'message_chunk', content: data.chunk.content };
                         }
                         break;
 
@@ -167,8 +168,9 @@ export class CodeAgentOrchestrator {
                         break;
 
                     case "on_chain_start":
-                        if (['explorer', 'coder', 'verifier'].includes(name)) {
-                            yield {type: 'agent_start', agentName: name, description: `开始执行子任务...`};
+                        if (['supervisor', 'explorer', 'coder', 'verifier'].includes(name)) {
+                            currentTopNode = name;
+                            yield { type: 'agent_start', agentName: name, description: `开始执行子任务...` };
                         }
                         break;
 

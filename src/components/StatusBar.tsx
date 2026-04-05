@@ -33,7 +33,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ status }) => {
     const agentColor = getAgentColor(status.agentName);
 
     return (
-        <Box paddingX={1} borderStyle="round" borderColor="gray" marginY={1}>
+        <Box paddingX={1} borderStyle="round" borderColor="gray" marginY={0}>
             <Text color="cyan">{frames[frameIdx]} </Text>
             <Text color={agentColor} bold>[{status.agentName}] </Text>
             <Text color="white">{status.statusText}</Text>

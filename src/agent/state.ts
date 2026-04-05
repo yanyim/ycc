@@ -44,7 +44,7 @@ export const GlobalStateAnnotation = Annotation.Root({
  */
 export const SubAgentStateAnnotation = Annotation.Root({
     // 子图内部的对话流 (包含大量的 tool_calls 和 tool_results)
-    localMessages: Annotation<BaseMessage[]>({
+    messages: Annotation<BaseMessage[]>({
         reducer: messagesStateReducer,
         default: () => [],
     }),
