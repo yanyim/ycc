@@ -1,16 +1,16 @@
 // src/App.tsx
-import React, { useEffect, useMemo } from 'react';
-import { Box } from 'ink';
-import { createModel } from './utils/ai';
-import { Welcome } from './components/Welcome';
-import { ChatArea } from './components/ChatArea';
-import { CommandInput } from './components/CommandInput';
-import { StatusBar } from './components/StatusBar'; // 🌟 引入状态栏
-import { commandRegistry, commandList } from './commands';
-import type { Message } from './types';
-import { CodeAgentOrchestrator } from './agent/orchestrator'; // 🌟 引入智能体大脑
+import React, {useEffect, useMemo} from 'react';
+import {Box} from 'ink';
+import {createModel} from './utils/ai';
+import {Welcome} from './components/Welcome';
+import {ChatArea} from './components/ChatArea';
+import {CommandInput} from './components/CommandInput';
+import {StatusBar} from './components/StatusBar';
+import {commandList, commandRegistry} from './commands';
+import type {Message} from './types';
+import {CodeAgentOrchestrator} from './agent/orchestrator';
 
-import { useSessionStore, useRuntimeStore, useConfigStore } from './storage';
+import {useConfigStore, useRuntimeStore, useSessionStore} from './storage';
 
 export const App: React.FC = () => {
     // 1. Session Store (历史与文件)
@@ -38,21 +38,17 @@ export const App: React.FC = () => {
     const setModels = useConfigStore(state => state.setModels);
     const delay = useConfigStore(state => state.delay);
 
-    // 🌟 动态生成 LangChain 模型实例
     const activeModel = useMemo(() => {
         const modelInfo = models.find(m => m.model === currentModelName);
         const provider = modelInfo?.provider || 'openai';
-        // 这里的 createModel 已经是我们改造过、返回 ChatOpenAI 实例的方法了
         return createModel(provider, currentModelName || 'gpt-3.5-turbo');
     }, [models, currentModelName]);
 
-    // 🌟 实例化智能体编排器 (当模型变化时重建)
     const orchestrator = useMemo(() => {
         return new CodeAgentOrchestrator(activeModel, process.cwd(), delay);
     }, [activeModel, delay]);
 
     useEffect(() => {
-        // 只有在普通模式下，才加载默认的系统命令
         if (mode === 'normal') {
             setAvailableCommands(
                 commandList
@@ -68,9 +64,9 @@ export const App: React.FC = () => {
     const handleInputSubmit = async (text: string) => {
         if (isGenerating) return;
 
-        const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text };
+        // 🌟 我们在 Message 中增加一个隐式标记 `isTrace`，用于区分这是真实对话还是前端 UI 的追踪日志
+        const userMsg = {id: crypto.randomUUID(), role: 'user', content: text} as Message;
 
-        // --- 命令分发处理 ---
         if (text.startsWith('/')) {
             const [cmdNameWithSlash, ...args] = text.trim().split(' ');
             const cmdName = (cmdNameWithSlash || '').slice(1);
@@ -79,89 +75,102 @@ export const App: React.FC = () => {
             if (command) {
                 try {
                     await command.execute({
-                        args,
-                        options: {},
-                        messages,
-                        models,
-                        addMessage,
-                        clearMessages,
-                        setMode,
-                        setAvailableCommands,
-                        setCurrentModel,
-                        setModels
+                        args, options: {}, messages, models, addMessage, clearMessages,
+                        setMode, setAvailableCommands, setCurrentModel, setModels
                     });
                 } catch (error: any) {
-                    await addMessage({ id: crypto.randomUUID(), role: 'system', content: `[命令执行失败]: ${error.message}` });
+                    await addMessage({
+                        id: crypto.randomUUID(),
+                        role: 'system',
+                        content: `[命令执行失败]: ${error.message}`
+                    } as Message);
                 }
             } else {
                 await addMessage(userMsg);
-                await addMessage({ id: crypto.randomUUID(), role: 'system', content: `未知命令: ${cmdName}` });
+                await addMessage({id: crypto.randomUUID(), role: 'system', content: `未知命令: ${cmdName}`} as Message);
             }
             return;
         }
 
-        // --- 🤖 Agent 编排流处理 ---
         setIsGenerating(true);
         setCurrentStream('');
 
-        // 🌟 定义局部变量跟踪当前活跃的 Agent，完美解决 TS 类型与闭包陷阱
         let currentAgentName = 'Supervisor';
-        setAgentStatus({ agentName: currentAgentName, statusText: '正在分析任务边界...' });
+        setAgentStatus({agentName: currentAgentName, statusText: '正在分析任务边界...'});
 
-        // 固化用户消息
         await addMessage(userMsg);
-        const currentContext = [...messages, userMsg];
+
+        // 🌟 核心过滤：提取发给 LLM 的上下文时，彻底剔除掉我们用于 UI 展示的 Tool Traces 日志！
+        const currentContext = [...messages, userMsg].filter(
+            (msg: any) => !msg.isTrace
+        );
 
         try {
             let fullText = '';
 
-            // 🌟 监听图编排器抛出的高阶事件流
             for await (const event of orchestrator.executeTask(currentContext)) {
 
                 if (event.type === 'agent_start') {
-                    // 更新局部跟踪变量
                     currentAgentName = event.agentName;
-                    setAgentStatus({ agentName: currentAgentName, statusText: '思考规划中...' });
-                }
-                else if (event.type === 'tool_start') {
-                    // 提取工具参数，截断显示防止终端被刷屏
+                    setAgentStatus({agentName: currentAgentName, statusText: '思考规划中...'});
+
+                    // 🌟 轨迹追踪：将智能体的切换动作固化到上方历史区
+                    if (currentAgentName !== 'supervisor') {
+                        await addMessage({
+                            id: crypto.randomUUID(),
+                            role: 'system',
+                            content: `👑 [调度]: 唤醒 ${currentAgentName.toUpperCase()} 接管任务...`,
+                            isTrace: true // 标记为追踪日志，下一次提问时不会发给模型
+                        } as any);
+                    }
+                } else if (event.type === 'tool_start') {
+                    // 工具执行中：只显示在底部状态栏，防止屏幕被刷满
                     const argsSummary = JSON.stringify(event.args).substring(0, 30) + '...';
                     setAgentStatus({
                         agentName: currentAgentName,
-                        statusText: `调用工具 [${event.toolName}] ${argsSummary}`
+                        statusText: `执行工具 [${event.toolName}] ${argsSummary}`
                     });
-                }
-                else if (event.type === 'tool_end') {
+                } else if (event.type === 'tool_end') {
+                    // 🌟 轨迹追踪：工具执行成功后，将其固化到上方历史区！
+                    await addMessage({
+                        id: crypto.randomUUID(),
+                        role: 'system',
+                        content: `⚙️ [${currentAgentName.toUpperCase()}] call: ${event.toolName} [✓ Success]`,
+                        isTrace: true // 标记为追踪日志
+                    } as any);
+
                     setAgentStatus({
                         agentName: currentAgentName,
                         statusText: '分析工具返回结果...'
                     });
-                }
-                else if (event.type === 'message_chunk') {
-                    // 某些直接向用户输出的流式文本（通常是在最后汇报阶段抛出）
+                } else if (event.type === 'message_chunk') {
                     fullText += event.content;
                     setCurrentStream(fullText);
-                }
-                else if (event.type === 'task_complete') {
-                    // 任务彻底结束，提取最终大老板或子任务汇总的结论
+                } else if (event.type === 'task_complete') {
                     if (!fullText && event.finalResult) {
                         fullText = event.finalResult;
                     }
-                }
-                else if (event.type === 'error') {
+                } else if (event.type === 'error') {
                     throw new Error(event.message);
                 }
             }
 
-            // 流程结束，清理状态并落盘
             setAgentStatus(null);
             setCurrentStream('');
-            await addMessage({ id: crypto.randomUUID(), role: 'ai', content: fullText || '任务执行完毕，未返回特定输出。' });
+
+            // 任务结束，压入最终真实的 AI 回复
+            if (fullText) {
+                await addMessage({id: crypto.randomUUID(), role: 'ai', content: fullText} as Message);
+            }
 
         } catch (error: any) {
             setAgentStatus(null);
             setCurrentStream('');
-            await addMessage({ id: crypto.randomUUID(), role: 'system', content: `[任务异常崩溃]: ${error.message}` });
+            await addMessage({
+                id: crypto.randomUUID(),
+                role: 'system',
+                content: `[任务异常崩溃]: ${error.message}`
+            } as Message);
         } finally {
             setIsGenerating(false);
         }
@@ -169,14 +178,14 @@ export const App: React.FC = () => {
 
     return (
         <Box flexDirection="column">
-            {messages.length === 0 && <Welcome />}
+            {messages.length === 0 && <Welcome/>}
 
-            <ChatArea history={messages} currentStream={currentStream} />
+            {/* ChatArea 会自动渲染 messages 里的真实对话和我们刚刚塞进去的追踪日志 */}
+            <ChatArea history={messages} currentStream={currentStream}/>
 
-            {/* 🌟 插入状态栏：夹在对话与输入框中间 */}
-            <StatusBar status={agentStatus} />
+            <StatusBar status={agentStatus}/>
 
-            <CommandInput onSubmit={handleInputSubmit} />
+            <CommandInput onSubmit={handleInputSubmit}/>
         </Box>
     );
 };
