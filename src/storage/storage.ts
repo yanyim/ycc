@@ -1,39 +1,64 @@
-// src/store/storage.ts
-import {promises as fs} from 'fs';
+// src/storage/storage.ts
+import { promises as fs } from 'fs';
 import path from 'path';
-import type {StateStorage} from 'zustand/middleware';
+import type { StateStorage } from 'zustand/middleware';
 
 export const CLI_DIR = path.join(process.cwd(), '.ycc');
 export const SESSIONS_DIR = path.join(CLI_DIR, 'sessions');
+
+// 全局写锁队列，防止并发写入导致文件指针错乱
+let writeLock: Promise<void> = Promise.resolve();
 
 export const createFileStorage = (filename: string): StateStorage => {
     const filePath = path.join(CLI_DIR, filename);
 
     return {
         getItem: async (name: string): Promise<string | null> => {
+            const file = Bun.file(filePath);
+
+            // 🌟 使用 Bun 原生的 exists 判断，更优雅
+            if (!(await file.exists())) {
+                return null;
+            }
+
             try {
-                return await fs.readFile(filePath, 'utf-8');
+                // 🌟 使用 Bun 原生的极速读取
+                return await file.text();
             } catch (error: any) {
-                if (error.code === 'ENOENT') return null;
                 throw error;
             }
         },
+
         setItem: async (name: string, value: string): Promise<void> => {
-            try {
-                await fs.mkdir(CLI_DIR, {recursive: true});
-                // value 已经是 Zustand 传过来的 JSON 字符串了
-                // 我们把它 parse 出来，再用 null, 2 格式化重新写盘，保证人类可读性
-                const formattedJson = JSON.stringify(JSON.parse(value), null, 2);
-                await fs.writeFile(filePath, formattedJson, 'utf-8');
-            } catch (error) {
-                console.error(`\n[Storage Error] 保存失败: ${error}`);
-            }
+            const writeTask = async () => {
+                try {
+                    await fs.mkdir(CLI_DIR, { recursive: true });
+                    const formattedJson = JSON.stringify(JSON.parse(value), null, 2);
+
+                    const tempFilePath = `${filePath}.tmp.${Date.now()}`;
+
+                    // 🌟 核心提速：使用 Bun.write 写入临时文件
+                    await Bun.write(tempFilePath, formattedJson);
+
+                    // 利用操作系统的重命名(Rename)特性，瞬间覆盖原文件，绝对安全
+                    await fs.rename(tempFilePath, filePath);
+                } catch (error) {
+                    console.error(`\n[Storage Error] 保存失败: ${error}`);
+                }
+            };
+
+            writeLock = writeLock.then(writeTask).catch(writeTask);
+            await writeLock;
         },
+
         removeItem: async (name: string): Promise<void> => {
-            try {
-                await fs.unlink(filePath);
-            } catch (error) {
-                // 忽略不存在的错误
+            const file = Bun.file(filePath);
+            if (await file.exists()) {
+                try {
+                    await fs.unlink(filePath);
+                } catch (error) {
+                    // 忽略异常
+                }
             }
         },
     }

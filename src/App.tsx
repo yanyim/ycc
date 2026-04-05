@@ -35,6 +35,7 @@ export const App: React.FC = () => {
     const models = useConfigStore(state => state.models);
     const currentModelName = useConfigStore(state => state.currentModel);
     const setCurrentModel = useConfigStore(state => state.setCurrentModel);
+    const setModels = useConfigStore(state => state.setModels);
 
     // 🌟 动态生成 LangChain 模型实例
     const activeModel = useMemo(() => {
@@ -85,7 +86,8 @@ export const App: React.FC = () => {
                         clearMessages,
                         setMode,
                         setAvailableCommands,
-                        setCurrentModel
+                        setCurrentModel,
+                        setModels
                     });
                 } catch (error: any) {
                     await addMessage({ id: crypto.randomUUID(), role: 'system', content: `[命令执行失败]: ${error.message}` });

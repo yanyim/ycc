@@ -36,17 +36,14 @@ export const createConfigStore = () => {
                     if (state) {
                         state.setHasHydrated(true);
 
-                        // 🌟 修复冲突：hydration 完成后如果发现拿不到有效配置 (空数组)
-                        // 则强制触发 initImpl 的逻辑获取并初始化最新配置
+                        // 当 Zustand 从文件里读出来发现没有 models 时（比如文件被删了、初次运行）
                         if (!state.models || state.models.length === 0) {
-                            try {
-                                const { state: initState } = await coreInitLogic();
-                                // 将生成的正确配置同步到当前的内存 Store 中
-                                state.setModels(initState.models);
-                                state.setCurrentModel(initState.currentModel);
-                            } catch (err) {
-                                console.error('自动初始化备用配置失败:', err);
-                            }
+                            // 拿到默认数据
+                            const { state: initState } = await coreInitLogic();
+
+                            // 更新状态，Zustand 会自动把它们序列化并保存到 config.json 里
+                            state.setModels(initState.models);
+                            state.setCurrentModel(initState.currentModel);
                         }
                     }
                 },

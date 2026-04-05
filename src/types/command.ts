@@ -17,6 +17,7 @@ export interface CommandContext {
     setMode: (mode: 'normal' | 'model-selection') => void;
     setAvailableCommands: (commands: { label: string; value: string }[]) => void;
     setCurrentModel: (model: string) => void;
+    setModels: (models: ModelInfo[]) => void;
 }
 
 export interface Command {
