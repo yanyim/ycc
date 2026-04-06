@@ -1,5 +1,5 @@
 // src/agent/teams/batch-edit/index.ts
-import {END, StateGraph} from "@langchain/langgraph";
+import {END, START, StateGraph} from "@langchain/langgraph";
 import {ToolNode} from "@langchain/langgraph/prebuilt";
 import {BatchEditStateAnnotation} from "./state";
 import {createAnalyzerNode, createAnalyzerToolNode, createEditorNode} from "./nodes";
@@ -115,12 +115,18 @@ export const BATCH_REFACTOR_TEAM: TeamDefinition = {
 
         const workflow = new StateGraph(BatchEditStateAnnotation)
             .addNode("analyzer", analyzerNode)
-            // 🌟 替换掉原本的 new ToolNode(analyzerTools)
             .addNode("analyzerTools", smartAnalyzerToolNode)
             .addNode("editor", editorNode)
-            // Editor 节点不需要防死循环计数器，所以依然用官方的 ToolNode 即可
             .addNode("editorTools", new ToolNode(editorTools))
             .addNode("taskCleanup", taskCleanupNode)
+
+            // ---------------- 拓扑边缘连线 ----------------
+            .addEdge(START, "analyzer")
+            .addConditionalEdges("analyzer", shouldContinueAnalyzer)
+            .addEdge("analyzerTools", "analyzer")
+            .addConditionalEdges("editor", shouldContinueEditor)
+            .addEdge("editorTools", "editor")
+            .addConditionalEdges("taskCleanup", afterCleanupRoute);
 
         return workflow.compile();
     }
