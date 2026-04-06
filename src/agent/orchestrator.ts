@@ -8,43 +8,20 @@ import { CodeToolRegistry } from "./tools/registry";
 import { createWorkerGraph } from "./graphs/workerGraph";
 import type { AgentEvent } from "./types/events";
 
-/**
- * [Supervisor 提示词中文翻译]
- * 你是一个多智能体编码系统的执行主管。
- * 你的工作是理解用户的请求，并将任务委托给合适的下级智能体（Explorer, Coder, Verifier）。
- * * 严格的工作流规则：
- * 1. 委托：根据智能体的能力，将任务路由给正确的智能体。
- * 2. 避免冗余：如果一个智能体汇报他们已经完成了任务，除非用户明确要求，否则不要再次去验证它。
- * 3. 终止（极其重要）：一旦用户的原始请求已完全解决，你必须将 nextWorker 指定为 "FINISH" 以停止系统。
- * * JSON 输出格式：
- * 你必须严格遵守以下 JSON 结构。绝对禁止发明新的键名（Key）或改变大小写。
- */
-const SUPERVISOR_PROMPT = `You are the executive Supervisor of a multi-agent coding system.
-Your job is to understand the user's request and delegate tasks to the appropriate sub-agents (Explorer, Coder, Verifier).
-
-Strict Workflow Rules:
-1. DELEGATION: Route the task to the correct agent based on their capabilities.
-2. AVOID REDUNDANCY: If an agent reports that they have successfully completed the task, DO NOT verify it again unless explicitly requested by the user.
-3. TERMINATION (CRITICAL): Once you determine that the user's original request has been fully resolved, you MUST assign "FINISH" as the nextWorker.
-
-CRITICAL JSON OUTPUT FORMAT:
-You must strictly adhere to the following exact JSON structure. DO NOT invent new keys. Pay strict attention to camelCase and exact enum values.
-{
-  "reasoning": "Your thought process (optional)",
-  "message": "Specific instructions for the next agent, or direct reply to the user if finished.",
-  "nextWorker": "explorer" | "coder" | "verifier" | "FINISH"
-}`;
+import { getSupervisorSystemPrompt } from "./prompts/supervisor";
 
 export class CodeAgentOrchestrator {
     private graph: any; // 编译后的主图
     private llmModel: any;
     private toolRegistry: CodeToolRegistry;
     private delayMs: number;
+    private workspacePath: string;
 
     constructor(llmModel: any, workspacePath: string = process.cwd(), delayMs: number = 0) {
         this.llmModel = llmModel;
         this.toolRegistry = new CodeToolRegistry(workspacePath);
         this.delayMs = delayMs;
+        this.workspacePath = workspacePath
         this.buildGlobalGraph();
     }
 
@@ -56,17 +33,20 @@ export class CodeAgentOrchestrator {
         const exploreSubGraph = createWorkerGraph(
             EXPLORE_AGENT,
             this.toolRegistry.resolveToolsForAgent(EXPLORE_AGENT),
-            this.llmModel
+            this.llmModel,
+            this.workspacePath // 🌟 传入构造函数里保存的路径
         );
         const coderSubGraph = createWorkerGraph(
             CODER_AGENT,
             this.toolRegistry.resolveToolsForAgent(CODER_AGENT),
-            this.llmModel
+            this.llmModel,
+            this.workspacePath // 🌟 传入构造函数里保存的路径
         );
         const verifierSubGraph = createWorkerGraph(
             VERIFIER_AGENT,
             this.toolRegistry.resolveToolsForAgent(VERIFIER_AGENT),
-            this.llmModel
+            this.llmModel,
+            this.workspacePath // 🌟 传入构造函数里保存的路径
         );
 
         // 2. 定义大老板节点 (Supervisor Node)
@@ -81,7 +61,8 @@ export class CodeAgentOrchestrator {
 
             const supervisorModel = this.llmModel.withStructuredOutput(routingSchema, { name: "route_task" });
 
-            const systemPrompt = SUPERVISOR_PROMPT;
+            // 🌟 动态获取干净的 Prompt
+            const systemPrompt = getSupervisorSystemPrompt();
 
             if (this.delayMs > 0) {
                 await new Promise(resolve => setTimeout(resolve, this.delayMs));
