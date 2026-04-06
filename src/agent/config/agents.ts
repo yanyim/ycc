@@ -1,7 +1,5 @@
 // src/agent/config/agents.ts
 import type { AgentRole, IsolationMode, ModelTier } from '../types/events';
-
-// 🌟 引入纯净的提示词字典
 import {
     EXPLORE_IDENTITY,
     CODER_IDENTITY,
@@ -11,7 +9,7 @@ import {
 
 export interface AgentDefinition {
     name: string;
-    role: AgentRole;
+    role: AgentRole;     // 注意：此时 role 应该是 'explorer' | 'coder' | 'verifier' 等具体工种
     description: string;
     modelTier: ModelTier;
     isolation: IsolationMode;
@@ -33,9 +31,7 @@ export const EXPLORE_AGENT: AgentDefinition = {
     isolation: 'read-only',
     allowedTools: ['read_file', 'grep', 'glob', 'list_files', 'grep_search'],
     omitHeavyContext: true,
-
-    identityPrompt: EXPLORE_IDENTITY, // 🌟 极其清爽的引用
-
+    identityPrompt: EXPLORE_IDENTITY,
     enableCodeStyleRules: false,
     enableAntiHallucinationRules: true,
     injectWorkspaceContext: true,
@@ -48,9 +44,7 @@ export const CODER_AGENT: AgentDefinition = {
     modelTier: 'reasoning',
     isolation: 'workspace-rw',
     allowedTools: '*',
-
-    identityPrompt: CODER_IDENTITY, // 🌟
-
+    identityPrompt: CODER_IDENTITY,
     enableCodeStyleRules: true,
     enableAntiHallucinationRules: false,
     injectWorkspaceContext: true,
@@ -63,13 +57,9 @@ export const VERIFIER_AGENT: AgentDefinition = {
     modelTier: 'inherit',
     isolation: 'tmp-only',
     allowedTools: ["list_files", "read_file", "run_linter", 'bash_execute', 'write_tmp_file'],
-
-    identityPrompt: VERIFIER_IDENTITY, // 🌟
-    criticalReminder: VERIFIER_CRITICAL_REMINDER, // 🌟
-
+    identityPrompt: VERIFIER_IDENTITY,
+    criticalReminder: VERIFIER_CRITICAL_REMINDER,
     enableCodeStyleRules: false,
     enableAntiHallucinationRules: true,
     injectWorkspaceContext: true,
 };
-
-export const AGENT_REGISTRY = [EXPLORE_AGENT, CODER_AGENT, VERIFIER_AGENT];

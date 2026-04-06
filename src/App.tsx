@@ -8,8 +8,8 @@ import {CommandInput} from './components/CommandInput';
 import {StatusBar} from './components/StatusBar';
 import {commandList, commandRegistry} from './commands';
 import type {Message} from './types';
-import {CodeAgentOrchestrator} from './agent/orchestrator';
-
+import {TeamOrchestrator} from './agent/orchestrator';
+import {DEFAULT_TEAM, TEAM_REGISTRY} from './agent/config/teams';
 import {useConfigStore, useRuntimeStore, useSessionStore} from './storage';
 
 export const App: React.FC = () => {
@@ -38,16 +38,6 @@ export const App: React.FC = () => {
     const setModels = useConfigStore(state => state.setModels);
     const delay = useConfigStore(state => state.delay);
 
-    const activeModel = useMemo(() => {
-        const modelInfo = models.find(m => m.model === currentModelName);
-        const provider = modelInfo?.provider || 'openai';
-        return createModel(provider, currentModelName || 'gpt-3.5-turbo');
-    }, [models, currentModelName]);
-
-    const orchestrator = useMemo(() => {
-        return new CodeAgentOrchestrator(activeModel, process.cwd(), delay);
-    }, [activeModel, delay]);
-
     useEffect(() => {
         if (mode === 'normal') {
             setAvailableCommands(
@@ -60,6 +50,32 @@ export const App: React.FC = () => {
             );
         }
     }, [mode, setAvailableCommands]);
+
+    // 1. 获取持久化的 Team ID
+    const currentTeamId = useConfigStore(state => state.currentTeamId);
+
+
+// 2. 映射为具体的团队配置
+    const activeTeamDef = useMemo(() => {
+        return TEAM_REGISTRY.get(currentTeamId) || DEFAULT_TEAM;
+    }, [currentTeamId]);
+
+// 3. 实例化大模型
+    const activeModel = useMemo(() => {
+        const modelInfo = models.find(m => m.model === currentModelName);
+        const provider = modelInfo?.provider || 'openai';
+        return createModel(provider, currentModelName || 'gpt-3.5-turbo');
+    }, [models, currentModelName]);
+
+// 🌟 4. 实例化团队统筹者 (图引擎)
+    const orchestrator = useMemo(() => {
+        return new TeamOrchestrator(
+            activeTeamDef,
+            activeModel,
+            process.cwd(),
+            delay
+        );
+    }, [activeTeamDef, activeModel, delay]);
 
     const handleInputSubmit = async (text: string) => {
         if (isGenerating) return;

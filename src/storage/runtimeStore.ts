@@ -1,5 +1,6 @@
 // src/store/runtimeStore.ts
-import { createStore } from 'zustand';
+import type {StoreApi, UseBoundStore} from 'zustand';
+import {create} from 'zustand';
 
 export interface RuntimeState {
     isGenerating: boolean;
@@ -21,28 +22,28 @@ export interface RuntimeState {
     setAvailableCommands: (commands: { label: string; value: string }[]) => void;
 
     // 模式 (普通命令 vs 模型选择)
-    mode: 'normal' | 'model-selection';
-    setMode: (mode: 'normal' | 'model-selection') => void;
+    mode: 'normal' | 'model-selection' | 'agent-selection';
+    setMode: (mode: 'normal' | 'model-selection' | 'agent-selection') => void;
 }
 
-export const createRuntimeStore = () => {
-    return createStore<RuntimeState>()((set) => ({
-        isGenerating: false,
-        setIsGenerating: (status) => set({ isGenerating: status }),
 
-        agentStatus: null,
-        setAgentStatus: (status) => set({ agentStatus: status }),
-        
-        showCommandPanel: false,
-        setShowCommandPanel: (show) => set({ showCommandPanel: show }),
+export const useRuntimeStore: UseBoundStore<StoreApi<RuntimeState>> = create<RuntimeState>((set) => ({
+    isGenerating: false,
+    setIsGenerating: (status) => set({isGenerating: status}),
 
-        currentStream: '',
-        setCurrentStream: (text) => set({ currentStream: text }),
+    agentStatus: null,
+    setAgentStatus: (status) => set({agentStatus: status}),
 
-        availableCommands: [],
-        setAvailableCommands: (commands) => set({ availableCommands: commands }),
+    showCommandPanel: false,
+    setShowCommandPanel: (show) => set({showCommandPanel: show}),
 
-        mode: 'normal',
-        setMode: (mode) => set({ mode: mode }),
-    }));
-};
+    currentStream: '',
+    setCurrentStream: (text) => set({currentStream: text}),
+
+    availableCommands: [],
+    setAvailableCommands: (commands) => set({availableCommands: commands}),
+
+    mode: 'normal',
+    setMode: (mode) => set({mode: mode}),
+
+}))

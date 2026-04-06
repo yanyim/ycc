@@ -1,16 +1,21 @@
 // src/components/CommandInput.tsx
-import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
-import TextInput from 'ink-text-input';
+import React, {useState} from 'react';
+import {Box, Text, useInput} from 'ink';
 import SelectInput from 'ink-select-input';
-import { useRuntimeStore } from '../storage';
+import {useRuntimeStore} from '../storage';
 import {MultilineInput} from "./MultilineInput";
 
 interface CommandInputProps {
     onSubmit: (text: string) => void;
 }
 
-export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
+const MENU_TITLES: Record<string, string> = {
+    'model-selection': '选择或搜索模型：',
+    'agent-selection': '选择你要切换的智能体团队：',
+    'normal': '按上下键选择命令，回车执行：'
+};
+
+export const CommandInput: React.FC<CommandInputProps> = ({onSubmit}) => {
     const [query, setQuery] = useState('');
     // 🌟 新增：专门用于强制 TextInput 重新挂载的状态，以此重置光标到句末
     const [inputKey, setInputKey] = useState(0);
@@ -31,10 +36,12 @@ export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
 
     const displayCommands = filteredCommands.length > 0
         ? filteredCommands
-        : [{ label: '无匹配项 (请修改或按退格键)', value: '' }];
+        : [{label: '无匹配项 (请修改或按退格键)', value: ''}];
 
     const isTypingArgs = query.includes(' ');
-    const isCommandMode = (query.startsWith('/') && !isTypingArgs) || mode === 'model-selection';
+    const isSelectionMode = mode === 'model-selection' || mode === 'agent-selection';
+
+    const isCommandMode = (query.startsWith('/') && !isTypingArgs) || isSelectionMode;
 
     useInput((input, key) => {
         if (key.tab && filteredCommands.length > 0) {
@@ -46,6 +53,8 @@ export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
             let newQuery = '';
 
             if (mode === 'model-selection') {
+                newQuery = match;
+            } else if (mode === 'agent-selection') {
                 newQuery = match;
             } else if (query.startsWith('/') && !isTypingArgs) {
                 newQuery = `/${match} `;
@@ -72,6 +81,9 @@ export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
 
         if (mode === 'model-selection') {
             onSubmit(`/models ${item.value}`);
+        } else if (mode === 'agent-selection') {
+            // 将选中的 teamId 拼接成命令提交
+            onSubmit(`/agent ${item.value}`);
         } else {
             onSubmit(`/${item.value}`);
         }
@@ -112,7 +124,7 @@ export const CommandInput: React.FC<CommandInputProps> = ({ onSubmit }) => {
                 >
                     <Box marginBottom={1}>
                         <Text color="yellow" bold>
-                            {mode === 'model-selection' ? '选择或搜索模型：' : '按上下键选择命令，回车执行：'}
+                            {MENU_TITLES[mode]}
                         </Text>
                     </Box>
                     <SelectInput

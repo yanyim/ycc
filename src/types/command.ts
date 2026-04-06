@@ -14,7 +14,7 @@ export interface CommandContext {
     clearMessages: () => Promise<void>;
 
     // 注入 store 相关的原子化状态更新方法 (方便命令实现直接修改 UI 模式或配置)
-    setMode: (mode: 'normal' | 'model-selection') => void;
+    setMode: (mode: 'normal' | 'model-selection' | 'agent-selection') => void;
     setAvailableCommands: (commands: { label: string; value: string }[]) => void;
     setCurrentModel: (model: string) => void;
     setModels: (models: ModelInfo[]) => void;

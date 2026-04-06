@@ -4,4 +4,3 @@
 export * from './configStore';
 export * from './sessionStore';
 export * from './runtimeStore';
-export * from './Provider';
