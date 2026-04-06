@@ -1,53 +1,99 @@
-### 🌍 我们目前的架构全景图（复盘）
+---
 
-我们可以把这个 Code CLI 想象成一个**“微型软件外包公司”**。目前，我们已经完成了这家公司的**规章制度、武器库和打工人的工位搭建**。
+# 📖 架构笔记：LangGraph 多智能体团队拓扑重构 (Graph-as-a-Team)
 
-* **阶段一：规章制度 (`config/agents.ts` & `state.ts`)**
-    * **我们做了什么：** 定义了公司的职位描述（`AgentDefinition`）和会议室规则（`StateAnnotation`）。
-    * **核心成就：** 明确了“探路者 (Explore)”、“程序员 (Coder)”、“测试员 (Verifier)”的职责，并且规定了**大老板（Supervisor）的会议室（GlobalState）和普通员工的工位（SubAgentState）是物理隔离的**。
-* **阶段二：武器库与门禁 (`tools/file-system/` & `registry.ts`)**
-    * **我们做了什么：** 你亲手写了安全、防溢出的底层文件操作工具，我们又包了一层 `CodeToolRegistry`。
-    * **核心成就：** 这相当于给每个员工发工具箱。探路者去领工具，门禁系统（Isolation Policy）绝不会给他发“写文件”的工具。如果模型发疯想删代码，在门禁这里就会被拦截。
-* **阶段三：打工人工位流水线 (`workerGraph.ts`)**
-    * **我们做了什么：** 我们写了一个“通用的流水线车间创建器”（`createWorkerGraph`）。
-    * **核心成就：** 把职位描述（Prompt）、工具箱（Tools）和大模型（LLM）扔进去，就能实例化出一个个独立运转的“打工人”。他们在自己的车间里（Sub-graph）拼命工作、查资料、自言自语（`localMessages`），**外界根本听不到他们的废话**。
+## 一、 核心痛点复盘
+在初版架构中，我们的 `TeamDefinition` 仅仅是一个“人员花名册”（包含了智能体角色和 Prompt），而团队的工作流程（谁把任务交给谁）被**硬编码**在了 `TeamOrchestrator` 中。
+
+* **架构瓶颈**：被锁死的“星型拓扑（Hub-and-Spoke）”。
+* **表现**：无论什么任务，都必须走 `Start -> Supervisor -> Worker -> Supervisor -> End` 的流程。无法为特定任务（如单纯的代码翻译、流水线审核）建立无大老板的“直线型”协作流程。
+
+## 二、 核心演进理念：图即团队 (Graph-as-a-Team)
+在 LangGraph 的最佳抽象中，**团队（Team）的定义不仅仅是“有哪些成员（Nodes）”，更必须包含“成员之间如何协作（Edges & Routing）”。**
+
+因此，团队重构的第一性原理是：**将流转图（Graph）的组装权，从中央调度器下放给各个团队自己。**
+
+### 拓扑结构的三种终极形态：
+1. **监管者模式 (Supervisor / Star)**：包含大老板中枢，适合需求不明确、需要动态路由的复杂探索任务（如当前的 `CODING_TEAM`）。
+2. **流水线模式 (Pipeline / Sequential)**：无中枢，节点串行。适合标准化 SOP 任务（如：文档读取 -> 翻译 -> 审查 -> 产出）。
+3. **层级模式 (Hierarchical / Nested)**：大图套小图。大老板将任务派发给“前端团队子图”和“后端团队子图”。
 
 ---
 
-### 💡 核心解答：大老板（Supervisor）如何指挥这些打工人？
+# 🏗️ 开发设计大纲 (Implementation Outline)
 
-你问到了最关键的问题：**在 LangGraph 中，主图的主节点（Supervisor）是如何调用并回收这些独立子图（Sub-Graphs）结果的？**
+后续的重构开发请按照以下三个阶段进行：
 
-这里有一个非常优雅的“第一性原理”：**在 LangChain/LangGraph 的世界里，一个编译好的图（Compiled Graph）本身就是一个可执行的节点（Runnable）！**
+## 阶段 1：重定义 Team 接口规范 (`src/agent/config/teams.ts`)
+**目标**：为团队注入图的“编译权”。
 
-在接下来的**阶段四**中，我们的运作逻辑是这样的：
+* 修改 `TeamDefinition` 接口，移除/淡化 `members` 和 `supervisorPrompt` 这种只服务于星型拓扑的属性。
+* **新增核心方法**：`buildTeamGraph`。
+```typescript
+import { Runnable } from "@langchain/core/runnables";
+import { CodeToolRegistry } from "../tools/registry";
 
-1.  **大老板下达指令 (Supervisor Node)：**
-    主图的 Supervisor 节点（一个只有大模型、没有工具的节点）看了用户的要求，决定：“这活儿该交给探路者”。它把全局的 `nextWorker` 状态改为 `"explorer"`。
-2.  **主图路由 (Conditional Edge)：**
-    主图的路由器看到 `"explorer"`，就会把状态流转给主图里的 `ExploreWorkerNode`（探路者节点）。
-3.  **唤醒子图并传递参数 (Invoke Sub-Graph)：**
-    这步是魔法所在。`ExploreWorkerNode` 内部**不是**直接调大模型，而是调用我们在**阶段三**编译出来的子图！它会把全局状态（GlobalState）里的指令“翻译”成子状态（SubAgentState）丢进去：
-    ```typescript
-    // 伪代码演示：主图节点如何调用子图
-    async function ExploreWorkerNode(globalState) {
-        // 1. 唤醒探路者子图
-        const resultState = await exploreSubGraph.invoke({
-            currentTask: "去搜一下 auth.ts",
-            // localMessages 自动从空数组开始
-        });
+export interface TeamDefinition {
+    id: string;
+    name: string;
+    description: string;
+    
+    // 核心接口：团队必须自己返回一个编译好的 LangGraph
+    buildTeamGraph: (
+        llmModel: any, 
+        toolRegistry: CodeToolRegistry, 
+        workspacePath: string
+    ) => Runnable; 
+}
+```
 
-        // 2. 子图在内部跑了几十轮，终于得出了结论
-        const summary = resultState.localMessages[最后一条];
+## 阶段 2：实现具体的团队拓扑 (在 `teams/` 目录下拆分)
+**目标**：利用通用的 `createWorkerGraph`，组装不同形态的团队。
 
-        // 3. 把精华结论带回给大老板的全局会议室
-        return {
-            messages: [new AIMessage(`探路者汇报: ${summary.content}`)]
-        };
+### 场景 A：重构现有的核心研发团队 (星型拓扑)
+* **路径**：新建 `src/agent/config/teams/CodingTeam.ts`。
+* **逻辑**：将原本在 `orchestrator.ts` 里写的 Supervisor 节点、条件路由（Conditional Edges）、以及动态注册 Worker 节点的 `for` 循环，全部迁移到这个类的 `buildTeamGraph` 方法中。
+
+### 场景 B：新增一个代码翻译团队 (流水线拓扑)
+* **路径**：新建 `src/agent/config/teams/TranslationTeam.ts`。
+* **逻辑**：不使用 Supervisor。直接组装 `ReaderNode -> TranslatorNode -> VerifierNode`。
+* **图结构**：
+  ```typescript
+  const workflow = new StateGraph(GlobalStateAnnotation)
+      .addNode("reader", readerNode)
+      .addNode("translator", translatorNode)
+      .addEdge(START, "reader")
+      .addEdge("reader", "translator")
+      .addEdge("translator", END);
+  return workflow.compile();
+  ```
+
+## 阶段 3：为 Orchestrator “瘦身” (`src/agent/orchestrator.ts`)
+**目标**：让大管家回归“执行者”与“事件广播器”的本质。
+
+* **移除**：删除 `buildGlobalGraph` 方法中所有关于节点组装、路由判断的硬编码逻辑。
+* **接入**：在构造函数中，直接调用当前激活团队的 `buildTeamGraph` 方法获取图实例。
+* **保留**：保留 `executeTask` 这一核心方法，因为 `streamEvents` V2 的底层事件穿透机制依然完美适用于任何形态的图。
+
+```typescript
+export class TeamOrchestrator {
+    private graph: any;
+
+    constructor(teamDef: TeamDefinition, llmModel: any, workspacePath: string) {
+        const toolRegistry = new CodeToolRegistry(workspacePath);
+        // 极致优雅：一键获取组装好的黑盒团队
+        this.graph = teamDef.buildTeamGraph(llmModel, toolRegistry, workspacePath);
     }
-    ```
+    
+    public async* executeTask(chatHistory) {
+        // ... 原有的 streamEvents 逻辑保持不变 ...
+    }
+}
+```
 
-### 总结与下一步
-你现在可以把子图（WorkerGraph）看作是一个个**高度智能、自带沙箱的超级函数 (Super Function)**。无论它内部循环了多少次、翻了多少文件，对于外层的主图来说，**它就是一次函数调用，进出只有一次，返回的只有精华**。
+---
 
-这就完美实现了**防污染**和**可控性**。
+## 🎯 预期收益 (Expected Benefits)
+1. **符合开闭原则 (OCP)**：未来新增任何奇葩流程的 AI 团队，都不需要再修改 `orchestrator.ts`，只需新增一个 `Team` 定义文件并注册即可。
+2. **极高的复用性**：底层的 `createWorkerGraph` 依然作为“标准打工人工位”被各个团队复用。
+3. **消除抽象泄露**：真正实现了 LangGraph 的终极奥义——**万物皆图，图可嵌套**。
