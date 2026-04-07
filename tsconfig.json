@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    // 启用最新 JS 特性
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleDetection": "force",
+    "jsx": "react-jsx", // 🌟 极其重要：让 IDE 认识你的 Ink (React) 组件语法
+
+    // 模块解析配置 (适配 Bun 的原生支持)
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+
+    // 极其重要：让 IDE 认识 Bun 的全局 API (如 Bun.file, bun:sqlite)
+    "types": ["bun-types"],
+
+    // 严格模式检查
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    // 告诉 TS：你只负责检查类型，不负责输出打包文件 (因为 Bun 负责运行)
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "index.tsx", // 包含你的入口文件
+    "package.json"
+  ]
+}
