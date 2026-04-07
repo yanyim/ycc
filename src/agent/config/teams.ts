@@ -16,7 +16,8 @@ export interface TeamDefinition {
     buildTeamGraph: (
         llmModel: any,
         toolRegistry: CodeToolRegistry,
-        workspacePath: string
+        workspacePath: string,
+        delayMs: number
     ) => any;
 }
 

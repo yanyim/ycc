@@ -100,7 +100,7 @@ export const BATCH_REFACTOR_TEAM: TeamDefinition = {
     name: '批量重构特种部队',
     description: '采用【先分析出清单、再循环执行】的模式，专治跨多个文件的批量修改。自带防死循环与状态隔离。',
 
-    buildTeamGraph: (llmModel, toolRegistry, workspacePath) => {
+    buildTeamGraph: (llmModel, toolRegistry, workspacePath, delayMs) => {
 
         // 我们利用你之前写好的工具漏斗，为不同的角色分发不同的工具套餐
         // 分析员只读，编辑员读写

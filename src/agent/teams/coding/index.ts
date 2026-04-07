@@ -12,7 +12,7 @@ export const CODING_TEAM: TeamDefinition = {
     name: '核心研发团队',
     description: '采用标准星型拓扑，由总管协调探索、编写与测试。',
 
-    buildTeamGraph: (llmModel, toolRegistry, workspacePath) => {
+    buildTeamGraph: (llmModel, toolRegistry, workspacePath, delayMs) => {
         let workflow: any = new StateGraph(GlobalStateAnnotation);
 
         const members = [EXPLORE_AGENT, CODER_AGENT, VERIFIER_AGENT];

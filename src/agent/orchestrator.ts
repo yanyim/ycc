@@ -9,6 +9,7 @@ export class TeamOrchestrator {
     private llmModel: any;
     private toolRegistry: CodeToolRegistry;
     private workspacePath: string;
+    private delayMs: number;
 
     /**
      * @param teamDef 当前用户选择的特种团队 (例如 CODING_TEAM 或 BATCH_REFACTOR_TEAM)
@@ -18,10 +19,12 @@ export class TeamOrchestrator {
     constructor(
         teamDef: TeamDefinition,
         llmModel: any,
-        workspacePath: string = process.cwd()
+        workspacePath: string = process.cwd(),
+        delayMs: number = 0 // 🌟 接收 delayMs
     ) {
         this.llmModel = llmModel;
         this.workspacePath = workspacePath;
+        this.delayMs = delayMs;
 
         // 统一初始化工具注册表，把文件系统读写权限圈定在当前工作区
         this.toolRegistry = new CodeToolRegistry(workspacePath);
@@ -34,7 +37,8 @@ export class TeamOrchestrator {
         this.graph = teamDef.buildTeamGraph(
             this.llmModel,
             this.toolRegistry,
-            this.workspacePath
+            this.workspacePath,
+            this.delayMs
         );
     }
 
@@ -42,7 +46,7 @@ export class TeamOrchestrator {
      * 核心执行引擎：负责将用户的对话推入图，并利用 streamEvents 进行事件流式穿透
      * @param chatHistory 终端中积累的历史对话 (包含用户的当前指令)
      */
-    public async* executeTask(chatHistory: BaseMessage[]) {
+    public async* executeTask(chatHistory: any[]) {
         // 构造触发图运行的初始状态
         // （无论什么拓扑结构，LangGraph 至少都有一根 messages 的主轴）
         const initialState = {
