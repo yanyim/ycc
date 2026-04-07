@@ -8,7 +8,7 @@ export const models = [
         provider: 'openrouter',
     },
     {
-        name: 'minimax/minimax-m2.7',
-        provider: 'openrouter',
+        name: 'bigmodel/glm-4.7',
+        provider: 'bigmodel',
     },
 ]

@@ -3,9 +3,13 @@ import { ChatOpenAI } from "@langchain/openai";
 
 export function createModel(provider: string, model: string) {
     // 无论是 OpenAI 还是 OpenRouter，都使用兼容 OpenAI 格式的接口
+    console.info({
+        baseURL: process.env[`${provider.toUpperCase()}_AI_API_URL`] || 'https://openrouter.ai/api/v1',
+        apiKey: process.env[`${provider.toUpperCase()}_AI_API_KEY`] || process.env.OPENAI_API_KEY,
+    })
     return new ChatOpenAI({
         configuration: {
-            baseURL: process.env[`${provider.toUpperCase()}_AI_BASE_URL`] || 'https://openrouter.ai/api/v1',
+            baseURL: process.env[`${provider.toUpperCase()}_AI_API_URL`] || 'https://openrouter.ai/api/v1',
             apiKey: process.env[`${provider.toUpperCase()}_AI_API_KEY`] || process.env.OPENAI_API_KEY,
         },
         modelName: model,
