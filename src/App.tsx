@@ -1,6 +1,6 @@
 // src/App.tsx
 import React, {useEffect, useMemo} from 'react';
-import {Box} from 'ink';
+import {Box, Static} from 'ink';
 import {createModel} from './utils/ai';
 import {Welcome} from './components/Welcome';
 import {ChatArea} from './components/ChatArea';
@@ -122,51 +122,55 @@ export const App: React.FC = () => {
         );
 
         try {
-            let fullText = '';
+            let fullText = ''; // 前端只负责管理要在屏幕上打出来的这坨字
 
             for await (const event of orchestrator.executeTask(currentContext)) {
 
                 if (event.type === 'agent_start') {
+                    // 1. 如果上个角色说了话，保存进历史
+                    if (fullText.trim()) {
+                        await addMessage({id: crypto.randomUUID(), role: 'ai', content: fullText} as Message);
+                    }
+
+                    // 2. 清空屏幕当前输入，准备迎接新角色
+                    fullText = '';
+                    setCurrentStream('');
+
+                    // 3. UI 状态更新
                     currentAgentName = event.agentName;
                     setAgentStatus({agentName: currentAgentName, statusText: '思考规划中...'});
 
-                    // 🌟 轨迹追踪：将智能体的切换动作固化到上方历史区
                     if (currentAgentName !== 'supervisor') {
                         await addMessage({
-                            id: crypto.randomUUID(),
-                            role: 'system',
+                            id: crypto.randomUUID(), role: 'system',
                             content: `👑 [调度]: 唤醒 ${currentAgentName.toUpperCase()} 接管任务...`,
-                            isTrace: true // 标记为追踪日志，下一次提问时不会发给模型
+                            isTrace: true
                         } as any);
                     }
-                } else if (event.type === 'tool_start') {
-                    // 工具执行中：只显示在底部状态栏，防止屏幕被刷满
-                    const argsSummary = JSON.stringify(event.args).substring(0, 30) + '...';
+                }
+                else if (event.type === 'tool_start') {
                     setAgentStatus({
                         agentName: currentAgentName,
-                        statusText: `执行工具 [${event.toolName}] ${argsSummary}`
+                        statusText: `执行工具 [${event.toolName}] ${JSON.stringify(event.args).substring(0, 30)}...`
                     });
-                } else if (event.type === 'tool_end') {
-                    // 🌟 轨迹追踪：工具执行成功后，将其固化到上方历史区！
+                }
+                else if (event.type === 'tool_end') {
                     await addMessage({
-                        id: crypto.randomUUID(),
-                        role: 'system',
+                        id: crypto.randomUUID(), role: 'system',
                         content: `⚙️ [${currentAgentName.toUpperCase()}] call: ${event.toolName} [✓ Success]`,
-                        isTrace: true // 标记为追踪日志
+                        isTrace: true
                     } as any);
-
-                    setAgentStatus({
-                        agentName: currentAgentName,
-                        statusText: '分析工具返回结果...'
-                    });
-                } else if (event.type === 'message_chunk') {
+                    setAgentStatus({agentName: currentAgentName, statusText: '分析工具返回结果...'});
+                }
+                else if (event.type === 'message_chunk') {
+                    // 🌟 极致精简！前端再也不用判断是不是 JSON，只要收到 chunk，无脑拼接渲染就对了！
                     fullText += event.content;
                     setCurrentStream(fullText);
-                } else if (event.type === 'task_complete') {
-                    if (!fullText && event.finalResult) {
-                        fullText = event.finalResult;
-                    }
-                } else if (event.type === 'error') {
+                }
+                else if (event.type === 'task_complete') {
+                    if (!fullText && event.finalResult) fullText = event.finalResult;
+                }
+                else if (event.type === 'error') {
                     throw new Error(event.message);
                 }
             }
@@ -174,9 +178,9 @@ export const App: React.FC = () => {
             setAgentStatus(null);
             setCurrentStream('');
 
-            // 任务结束，压入最终真实的 AI 回复
-            if (fullText) {
-                await addMessage({id: crypto.randomUUID(), role: 'ai', content: fullText} as Message);
+            // 任务结束，把最后一句话存进历史
+            if (fullText.trim()) {
+                await addMessage({id: crypto.randomUUID(), role: 'ai', content: fullText.trim()} as Message);
             }
 
         } catch (error: any) {
@@ -194,8 +198,6 @@ export const App: React.FC = () => {
 
     return (
         <Box flexDirection="column">
-            {messages.length === 0 && <Welcome/>}
-
             {/* ChatArea 会自动渲染 messages 里的真实对话和我们刚刚塞进去的追踪日志 */}
             <ChatArea history={messages} currentStream={currentStream}/>
 
