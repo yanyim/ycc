@@ -40,6 +40,7 @@ export const useSessionStore: UseBoundStore<StoreApi<SessionState>> = create<Ses
     addMessage: async (message: Message) => {
         let {currentSessionId, messages} = get();
 
+        // 1. 如果没有会话且是用户消息，生成一个 ID
         if (!currentSessionId && message.role === 'user') {
             const safeName = message.content.substring(0, 10).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
             const timestamp = new Date().getTime();
@@ -47,20 +48,21 @@ export const useSessionStore: UseBoundStore<StoreApi<SessionState>> = create<Ses
             set({currentSessionId});
         }
 
-        if (!currentSessionId) return;
-
+        // 🌟 核心修复 1：无论有没有 Session ID，都必须先更新内存中的 messages 数组！
+        // 这样 React UI 才能立刻收到状态变化并渲染出提示语。
         const newMessages = [...messages, message];
         set({messages: newMessages});
+
+        // 🌟 核心修复 2：只有存在 Session ID (即真正开始聊天了)，才执行文件落盘持久化。
+        // 系统命令产生的独立提示语不持久化是可以接受的。
+        if (!currentSessionId) return;
 
         try {
             await fs.mkdir(SESSIONS_DIR, {recursive: true});
             const filePath = path.join(SESSIONS_DIR, `${currentSessionId}.json`);
             const tempFilePath = `${filePath}.tmp`;
 
-            // 🌟 拥抱 Bun: 使用 Bun.write 写入临时文件
             await Bun.write(tempFilePath, JSON.stringify(newMessages, null, 2));
-
-            // 原子化替换
             await fs.rename(tempFilePath, filePath);
         } catch (err) {
             console.error('保存会话失败', err);

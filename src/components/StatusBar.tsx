@@ -21,22 +21,25 @@ export const StatusBar: React.FC<StatusBarProps> = ({ status }) => {
 
     if (!status) return null;
 
-    // 为不同的 Agent 分配不同的颜色标识
     const getAgentColor = (name: string) => {
         if (name.toLowerCase().includes('supervisor')) return 'magenta';
-        if (name.toLowerCase().includes('explore')) return 'blue';
         if (name.toLowerCase().includes('coder')) return 'yellow';
-        if (name.toLowerCase().includes('verifier')) return 'red';
         return 'cyan';
     };
 
     const agentColor = getAgentColor(status.agentName);
 
     return (
-        <Box paddingX={1} borderStyle="round" borderColor="gray" marginY={0}>
+        // 🌟 核心修复点：
+        // 1. 绝对不要加 borderStyle="round"！
+        // 2. 加上 flexDirection="row"
+        <Box paddingX={1} marginTop={0} flexDirection="row">
             <Text color="cyan">{frames[frameIdx]} </Text>
             <Text color={agentColor} bold>[{status.agentName}] </Text>
-            <Text color="white">{status.statusText}</Text>
+            {/* 🌟 核心修复点 3：强制截断，绝不换行 */}
+            <Text color="gray" wrap="truncate">
+                {status.statusText}
+            </Text>
         </Box>
     );
 };

@@ -11,6 +11,7 @@ import type {Message} from './types';
 import {TeamOrchestrator} from './agent/orchestrator';
 import {DEFAULT_TEAM, TEAM_REGISTRY} from './agent/config/teams';
 import {useConfigStore, useRuntimeStore, useSessionStore} from './storage';
+import {useTerminalResize} from "./hooks/useTerminalResize";
 
 export const App: React.FC = () => {
     // 1. Session Store (历史与文件)
@@ -37,6 +38,8 @@ export const App: React.FC = () => {
     const setCurrentModel = useConfigStore(state => state.setCurrentModel);
     const setModels = useConfigStore(state => state.setModels);
     const delay = useConfigStore(state => state.delay);
+
+    const { isResizing, resizeCount } = useTerminalResize(500);
 
     useEffect(() => {
         if (mode === 'normal') {
@@ -196,10 +199,12 @@ export const App: React.FC = () => {
         }
     };
 
+    console.info('messages',messages.length)
+
     return (
         <Box flexDirection="column">
             {/* ChatArea 会自动渲染 messages 里的真实对话和我们刚刚塞进去的追踪日志 */}
-            <ChatArea history={messages} currentStream={currentStream}/>
+            <ChatArea key={`chat-area-${resizeCount}`} history={messages} currentStream={currentStream}/>
 
             <StatusBar status={agentStatus}/>
 
